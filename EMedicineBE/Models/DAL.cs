@@ -244,47 +244,92 @@ namespace EMedicineBE.Models
         }
 
 
-        public Response userOrderList(int user_id, SqlConnection connection)
+        public Response userOrderList(int userId, SqlConnection connection)
         {
             Response response = new Response();
-            List<Order> orderList = new List<Order>();
 
-            SqlCommand cmd = new SqlCommand("user_order_list_sp", connection);
-            cmd.CommandType = CommandType.StoredProcedure;
-            cmd.Parameters.AddWithValue("@user_id", user_id);
-
-            SqlDataAdapter da = new SqlDataAdapter(cmd);
-            DataTable dt = new DataTable();
-            da.Fill(dt);
-
-            if (dt.Rows.Count > 0)
+            try
             {
-                foreach (DataRow row in dt.Rows)
+                SqlCommand cmd = new SqlCommand("user_order_list_sp", connection);
+                cmd.CommandType = CommandType.StoredProcedure;
+                cmd.Parameters.AddWithValue("@user_id", userId);
+
+                SqlDataAdapter da = new SqlDataAdapter(cmd);
+                DataSet ds = new DataSet();
+                da.Fill(ds);
+
+                // ds.Tables[0] = Orders
+                // ds.Tables[1] = Order Items
+
+                if (ds.Tables.Count < 2)
+                {
+                    response.StatusCode = 100;
+                    response.StatusMessage = "No orders found";
+                    response.listOrders = new List<Order>();
+                    return response;
+                }
+
+                DataTable dtOrders = ds.Tables[0];
+                DataTable dtItems = ds.Tables[1];
+
+                List<Order> orders = new List<Order>();
+
+                // ✅ Read Orders
+                foreach (DataRow row in dtOrders.Rows)
                 {
                     Order order = new Order();
-
                     order.id = Convert.ToInt32(row["id"]);
                     order.user_id = Convert.ToInt32(row["user_id"]);
                     order.order_no = row["order_no"].ToString();
                     order.order_total = Convert.ToDecimal(row["order_total"]);
                     order.order_status = row["order_status"].ToString();
+                    order.placed_time = row["placed_time"] == DBNull.Value ? null : Convert.ToDateTime(row["placed_time"]);
+                    order.shipped_time = row["shipped_time"] == DBNull.Value ? null : Convert.ToDateTime(row["shipped_time"]);
+                    order.out_for_delivery_time = row["out_for_delivery_time"] == DBNull.Value ? null : Convert.ToDateTime(row["out_for_delivery_time"]);
+                    order.delivered_time = row["delivered_time"] == DBNull.Value ? null : Convert.ToDateTime(row["delivered_time"]);
 
-                    orderList.Add(order);
+                    order.expected_delivery_date = row["expected_delivery_date"] == DBNull.Value ? null : Convert.ToDateTime(row["expected_delivery_date"]);
+
+                    orders.Add(order);
+                }
+
+                // ✅ Read Items and attach to orders
+                foreach (DataRow row in dtItems.Rows)
+                {
+                    OrderItem item = new OrderItem();
+                    item.id = Convert.ToInt32(row["id"]);
+                    item.order_id = Convert.ToInt32(row["order_id"]);
+                    item.user_id = Convert.ToInt32(row["user_id"]);
+                    item.medicine_id = Convert.ToInt32(row["medicine_id"]);
+                    item.unit_price = Convert.ToDecimal(row["unit_price"]);
+                    item.discount = Convert.ToDecimal(row["discount"]);
+                    item.qty = Convert.ToInt32(row["qty"]);
+                    item.total_price = Convert.ToDecimal(row["total_price"]);
+                    item.medicine_name = row["medicine_name"].ToString();
+                    item.image_url = row["image_url"].ToString();
+
+                    // find order and add item
+                    var order = orders.FirstOrDefault(o => o.id == item.order_id);
+                    if (order != null)
+                    {
+                        order.items.Add(item);
+                    }
                 }
 
                 response.StatusCode = 200;
                 response.StatusMessage = "User order list fetched successfully";
-                response.listOrders = orderList;
+                response.listOrders = orders;
             }
-            else
+            catch (Exception ex)
             {
-                response.StatusCode = 100;
-                response.StatusMessage = "No orders found for this user";
-                response.listOrders = null;
+                response.StatusCode = 500;
+                response.StatusMessage = "Error: " + ex.Message;
+                response.listOrders = new List<Order>();
             }
 
             return response;
         }
+
 
         public Response addUpdateMedicine(Medicine medicines, SqlConnection connection)
         {
@@ -541,6 +586,70 @@ namespace EMedicineBE.Models
 
             return response;
         }
+        public Response GetOrderDetails(int userId, int orderId, SqlConnection connection)
+        {
+            Response response = new Response();
+
+            try
+            {
+                SqlCommand cmd = new SqlCommand("order_details_sp", connection);
+                cmd.CommandType = CommandType.StoredProcedure;
+                cmd.Parameters.AddWithValue("@order_id", orderId);
+                cmd.Parameters.AddWithValue("@user_id", userId);
+
+                SqlDataAdapter da = new SqlDataAdapter(cmd);
+                DataSet ds = new DataSet();
+                da.Fill(ds);
+
+                if (ds.Tables.Count < 2 || ds.Tables[0].Rows.Count == 0)
+                {
+                    response.StatusCode = 100;
+                    response.StatusMessage = "Order not found";
+                    response.order = null;
+                    return response;
+                }
+
+                DataRow orderRow = ds.Tables[0].Rows[0];
+                DataTable dtItems = ds.Tables[1];
+
+                Order order = new Order();
+                order.id = Convert.ToInt32(orderRow["id"]);
+                order.user_id = Convert.ToInt32(orderRow["user_id"]);
+                order.order_no = orderRow["order_no"].ToString();
+                order.order_total = Convert.ToDecimal(orderRow["order_total"]);
+                order.order_status = orderRow["order_status"].ToString();
+
+                foreach (DataRow row in dtItems.Rows)
+                {
+                    OrderItem item = new OrderItem();
+                    item.id = Convert.ToInt32(row["id"]);
+                    item.order_id = Convert.ToInt32(row["order_id"]);
+                    item.user_id = Convert.ToInt32(row["user_id"]);
+                    item.medicine_id = Convert.ToInt32(row["medicine_id"]);
+                    item.unit_price = Convert.ToDecimal(row["unit_price"]);
+                    item.discount = Convert.ToDecimal(row["discount"]);
+                    item.qty = Convert.ToInt32(row["qty"]);
+                    item.total_price = Convert.ToDecimal(row["total_price"]);
+                    item.medicine_name = row["medicine_name"].ToString();
+                    item.image_url = row["image_url"].ToString();
+
+                    order.items.Add(item);
+                }
+
+                response.StatusCode = 200;
+                response.StatusMessage = "Order details fetched successfully";
+                response.order = order;
+            }
+            catch (Exception ex)
+            {
+                response.StatusCode = 500;
+                response.StatusMessage = "Error: " + ex.Message;
+                response.order = null;
+            }
+
+            return response;
+        }
+
 
     }
 }

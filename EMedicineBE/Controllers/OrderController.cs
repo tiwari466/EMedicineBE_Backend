@@ -47,5 +47,24 @@ namespace EMedicineBE.Controllers
 
             return Ok(response);
         }
+        //[HttpGet("orderDetails/{userId}/{orderId}")]
+        //public Response GetOrderDetails(int userId, int orderId)
+        //{
+        //    SqlConnection connection = new SqlConnection(_configuration.GetConnectionString("EMedCS"));
+        //    return _orderService.GetOrderDetails(userId, orderId, connection);
+        //}
+        [HttpGet("orderDetails/{userId}/{orderId}")]
+        public IActionResult GetOrderDetails(int userId, int orderId)
+        {
+            Response response = new Response();
+            DAL dal = new DAL();
+
+            using (SqlConnection connection = new SqlConnection(_configuration.GetConnectionString("EMedCS")))
+            {
+                response = dal.GetOrderDetails(userId, orderId, connection);
+            }
+
+            return Ok(response);
+        }
     }
 }

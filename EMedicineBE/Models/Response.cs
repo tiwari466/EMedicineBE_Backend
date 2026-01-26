@@ -17,8 +17,8 @@
 
         public List<Cart> listCarts { get; set; }
         public List<Order> listOrders { get; set; }
-        public Order Order { get; set; }
         public List<OrderItem> listItems { get; set; }
         public OrderItem orderItem { get; set; }
+        public Order order { get; set; }
     }
 }
