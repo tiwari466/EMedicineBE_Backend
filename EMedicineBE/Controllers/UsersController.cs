@@ -1,11 +1,8 @@
 ﻿using EMedicineBE.Models;
-using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.Data.SqlClient;
 using Microsoft.Extensions.Configuration;
+using Npgsql;
 using System.IO;
-using Microsoft.AspNetCore.Http;
-
 
 namespace EMedicineBE.Controllers
 {
@@ -20,70 +17,90 @@ namespace EMedicineBE.Controllers
             _configuration = configuration;
         }
 
-
-        [HttpPost]
-        [Route("registration")]
-        public Response register([FromBody] RegisterRequest request)
+        // ✅ REGISTER
+        [HttpPost("registration")]
+        public IActionResult Register([FromBody] RegisterRequest request)
         {
-            Response response = new Response();
+            if (request == null)
+                return BadRequest("Invalid request");
+
             DAL dal = new DAL();
-            SqlConnection connection = new SqlConnection(_configuration.GetConnectionString("EMedCS").ToString());
-            response = dal.register(request, connection);
-            return response;
+            string cs = _configuration.GetConnectionString("PostgresCS");
 
-        }
+            using var connection = new NpgsqlConnection(cs);
+            var response = dal.register(request, connection);
 
-        [HttpPost]
-        [Route("login")]
-        public IActionResult login([FromBody] LoginDto model)
-        {
-            DAL dal = new DAL();
-            using SqlConnection connection = new SqlConnection(_configuration.GetConnectionString("EMedCS"));
-
-            User u = new User();
-            u.email = model.email;
-            u.password = model.password;
-
-            var response = dal.login(u, connection);
             return Ok(response);
         }
 
-        [HttpPost]
-        [Route("viewUser")]
-        public Response viewUser(User users)
+        // ✅ LOGIN
+        [HttpPost("login")]
+        public IActionResult Login([FromBody] LoginDto model)
         {
-            DAL dal = new DAL();
-            SqlConnection connection = new SqlConnection(_configuration.GetConnectionString("EMedCS").ToString());
-            Response response = dal.viewUser(users, connection);
-            return response;
-        }
+            if (model == null)
+                return BadRequest("Invalid login request");
 
-        [HttpPost]
-        [Route("updateProfile")]
-        public Response UpdateProfile([FromBody] UpdateProfileRequest users)
-        {
             DAL dal = new DAL();
-            Response response;
+            string cs = _configuration.GetConnectionString("PostgresCS");
 
-            using (SqlConnection connection = new SqlConnection(_configuration.GetConnectionString("EMedCS").ToString()))
+            User user = new User
             {
-                response = dal.updateProfile(users, connection);
-            }
+                email = model.email,
+                password = model.password
+            };
 
-            return response;
+            using var connection = new NpgsqlConnection(cs);
+            var response = dal.login(user, connection);
+
+            return Ok(response);
         }
-        [HttpPost]
-        [Route("uploadProfilePic")]
+
+        // ✅ VIEW USER
+        [HttpPost("viewUser")]
+        public IActionResult ViewUser([FromBody] User users)
+        {
+            DAL dal = new DAL();
+            string cs = _configuration.GetConnectionString("PostgresCS");
+
+            using var connection = new NpgsqlConnection(cs);
+            var response = dal.viewUser(users, connection);
+
+            return Ok(response);
+        }
+
+        // ✅ UPDATE PROFILE
+        [HttpPost("updateProfile")]
+        public IActionResult UpdateProfile([FromBody] UpdateProfileRequest users)
+        {
+            if (users == null)
+                return BadRequest("Invalid request");
+
+            DAL dal = new DAL();
+            string cs = _configuration.GetConnectionString("PostgresCS");
+
+            using var connection = new NpgsqlConnection(cs);
+            var response = dal.updateProfile(users, connection);
+
+            return Ok(response);
+        }
+
+        // ✅ UPLOAD PROFILE PICTURE
+        [HttpPost("uploadProfilePic")]
         [Consumes("multipart/form-data")]
         public async Task<IActionResult> UploadProfilePic([FromForm] UploadProfilePicRequest model)
         {
             if (model.file == null || model.file.Length == 0)
                 return BadRequest("No file uploaded");
 
-            string folderPath = Path.Combine(Directory.GetCurrentDirectory(), "wwwroot", "profilepics");
+            string folderPath = Path.Combine(
+                Directory.GetCurrentDirectory(),
+                "wwwroot",
+                "profilepics"
+            );
+
             Directory.CreateDirectory(folderPath);
 
-            string fileName = Guid.NewGuid().ToString() + Path.GetExtension(model.file.FileName);
+            string fileName = Guid.NewGuid() + Path.GetExtension(model.file.FileName);
             string filePath = Path.Combine(folderPath, fileName);
 
             using (var stream = new FileStream(filePath, FileMode.Create))
@@ -94,18 +111,13 @@ namespace EMedicineBE.Controllers
             string fileUrl = $"{Request.Scheme}://{Request.Host}/profilepics/{fileName}";
 
             DAL dal = new DAL();
-            Response response;
+            string cs = _configuration.GetConnectionString("PostgresCS");
 
-            using (SqlConnection connection = new SqlConnection(_configuration.GetConnectionString("EMedCS")))
-            {
-                response = dal.updateProfilePicture(model.user_id, fileUrl, connection);
-            }
+            using var connection = new NpgsqlConnection(cs);
+            var response = dal.updateProfilePicture(model.user_id, fileUrl, connection);
 
             response.picture = fileUrl;
             return Ok(response);
         }
-
-
-
     }
 }

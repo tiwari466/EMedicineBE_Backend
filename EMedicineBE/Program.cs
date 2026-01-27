@@ -1,35 +1,38 @@
 ﻿var builder = WebApplication.CreateBuilder(args);
 
-// Add services
-builder.Services.AddControllers();
+// ✅ Load Railway / ENV vars first
+builder.Configuration.AddEnvironmentVariables();
 
-// ✅ Swagger
+// ✅ PostgreSQL connection
+var cs = builder.Configuration.GetConnectionString("PostgresCS");
+
+// ✅ Services
+builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
 // ✅ CORS
 builder.Services.AddCors(options =>
 {
-    options.AddPolicy("AllowReact",
-        policy => policy
-            .WithOrigins("http://localhost:5173", "http://localhost:3000")
+    options.AddPolicy("AllowReact", policy =>
+        policy
+            .AllowAnyOrigin()
             .AllowAnyHeader()
             .AllowAnyMethod());
 });
 
 var app = builder.Build();
 
-// ✅ Swagger enable
+// ✅ Swagger
 if (app.Environment.IsDevelopment())
 {
     app.UseSwagger();
     app.UseSwaggerUI();
 }
 
-//app.UseHttpsRedirection();
+// app.UseHttpsRedirection(); // ❌ Railway handles SSL
 
 app.UseCors("AllowReact");
-
 app.UseAuthorization();
 app.UseStaticFiles();
 app.MapControllers();

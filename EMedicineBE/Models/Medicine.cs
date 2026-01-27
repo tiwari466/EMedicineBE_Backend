@@ -12,7 +12,7 @@
         public string uses { get; set; }
         public DateTime exp_date { get; set; }
         public string image_url { get; set; }
-        public int status { get;set; }
+        public string? status { get;set; }
         public string type { get; set; }
     }
 }

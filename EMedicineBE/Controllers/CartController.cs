@@ -1,9 +1,6 @@
 ﻿using EMedicineBE.Models;
-using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.Data.SqlClient;
-using Microsoft.Extensions.Configuration;
-using System.Data;
+using Npgsql;
 
 namespace EMedicineBE.Controllers
 {
@@ -18,53 +15,74 @@ namespace EMedicineBE.Controllers
             _configuration = configuration;
         }
 
-        [HttpPost]
-        [Route("addToCart")]
-        public Response AddToCart(Cart cart)
+        // ✅ ADD TO CART
+        [HttpPost("addToCart")]
+        public IActionResult AddToCart([FromBody] Cart cart)
         {
+            if (cart == null)
+                return BadRequest("Invalid cart data");
+
             DAL dal = new DAL();
-            Response response;
+            string cs = _configuration.GetConnectionString("PostgresCS");
 
-            using (SqlConnection connection = new SqlConnection(
-                _configuration.GetConnectionString("EMedCS").ToString()))
-            {
-                response = dal.addToCart(cart, connection);
-            }
+            if (string.IsNullOrEmpty(cs))
+                return BadRequest("Postgres connection string missing");
 
-            return response;
-        }
-        [HttpGet("getCartItems/{user_id}")]
-        public IActionResult GetCartItems(int user_id)
-        {
-            Response response = new Response();
-            DAL dal = new DAL();
-
-            using (SqlConnection connection = new SqlConnection(
-                 _configuration.GetConnectionString("EMedCS")))
-            {
-                response = dal.getCartItems(user_id, connection);
-            }
+            using var connection = new NpgsqlConnection(cs);
+            var response = dal.addToCart(cart, connection);
 
             return Ok(response);
         }
 
+        // ✅ GET CART ITEMS
+        [HttpGet("getCartItems/{user_id}")]
+        public IActionResult GetCartItems(int user_id)
+        {
+            DAL dal = new DAL();
+            string cs = _configuration.GetConnectionString("PostgresCS");
+
+            if (string.IsNullOrEmpty(cs))
+                return BadRequest("Postgres connection string missing");
+
+            using var connection = new NpgsqlConnection(cs);
+            var response = dal.getCartItems(user_id, connection);
+
+            return Ok(response);
+        }
+
+        // ✅ REMOVE CART ITEM
         [HttpDelete("removeCartItem/{cartId}")]
-        public Response removeCartItem(int cartId)
+        public IActionResult RemoveCartItem(int cartId)
         {
-            SqlConnection connection = new SqlConnection(_configuration.GetConnectionString("EMedCS"));
             DAL dal = new DAL();
-            return dal.removeCartItem(cartId, connection);
+            string cs = _configuration.GetConnectionString("PostgresCS");
+
+            if (string.IsNullOrEmpty(cs))
+                return BadRequest("Postgres connection string missing");
+
+            using var connection = new NpgsqlConnection(cs);
+            var response = dal.removeCartItem(cartId, connection);
+
+            return Ok(response);
         }
 
+        // ✅ UPDATE CART QTY
         [HttpPut("updateCartQty")]
-        public Response updateCartQty([FromBody] UpdateCartQtyRequest req)
+        public IActionResult UpdateCartQty([FromBody] UpdateCartQtyRequest req)
         {
-            SqlConnection connection = new SqlConnection(_configuration.GetConnectionString("EMedCS"));
+            if (req == null)
+                return BadRequest("Invalid request");
+
             DAL dal = new DAL();
-            return dal.updateCartQty(req.id, req.qty, connection);
+            string cs = _configuration.GetConnectionString("PostgresCS");
+
+            if (string.IsNullOrEmpty(cs))
+                return BadRequest("Postgres connection string missing");
+
+            using var connection = new NpgsqlConnection(cs);
+            var response = dal.updateCartQty(req.id, req.qty, connection);
+
+            return Ok(response);
         }
-
-
-
     }
 }

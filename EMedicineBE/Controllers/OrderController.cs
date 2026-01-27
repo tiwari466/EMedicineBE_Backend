@@ -1,7 +1,7 @@
 ﻿using EMedicineBE.Models;
-using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.Data.SqlClient;
+using Microsoft.Extensions.Configuration;
+using Npgsql;
 
 namespace EMedicineBE.Controllers
 {
@@ -16,55 +16,75 @@ namespace EMedicineBE.Controllers
             _configuration = configuration;
         }
 
+        // ✅ USER ORDER LIST
         [HttpGet("userOrderList/{user_id}")]
         public IActionResult UserOrderList(int user_id)
         {
             DAL dal = new DAL();
-            string cs = _configuration.GetConnectionString("EMedCS");
 
-            using (SqlConnection connection = new SqlConnection(cs))
-            {
-                var response = dal.userOrderList(user_id, connection);
-                return Ok(response);
-            }
+            string cs = _configuration.GetConnectionString("PostgresCS");
+            if (string.IsNullOrEmpty(cs))
+                return BadRequest("Postgres connection string missing");
+
+            using var connection = new NpgsqlConnection(cs);
+            var response = dal.userOrderList(user_id, connection);
+
+            return Ok(response);
         }
 
+        // ✅ PLACE ORDER
         [HttpPost("placeOrder")]
         public IActionResult PlaceOrder([FromBody] PlaceOrderDto dto)
         {
-            Response response = new Response();
-            DAL dal = new DAL();
+            if (dto == null || dto.user_id <= 0)
+                return BadRequest("Invalid order request");
 
-            string cs = _configuration.GetConnectionString("EMedCS");
+            DAL dal = new DAL();
+            string cs = _configuration.GetConnectionString("PostgresCS");
 
             if (string.IsNullOrEmpty(cs))
-                return BadRequest("Connection string 'EMedCS' is missing in appsettings.json");
+                return BadRequest("Postgres connection string missing");
 
-            using (SqlConnection connection = new SqlConnection(cs))
-            {
-                response = dal.placeOrder(dto, connection);
-            }
+            using var connection = new NpgsqlConnection(cs);
+            var response = dal.placeOrder(dto, connection);
 
             return Ok(response);
         }
-        //[HttpGet("orderDetails/{userId}/{orderId}")]
-        //public Response GetOrderDetails(int userId, int orderId)
-        //{
-        //    SqlConnection connection = new SqlConnection(_configuration.GetConnectionString("EMedCS"));
-        //    return _orderService.GetOrderDetails(userId, orderId, connection);
-        //}
+
+        // ✅ ORDER DETAILS
         [HttpGet("orderDetails/{userId}/{orderId}")]
         public IActionResult GetOrderDetails(int userId, int orderId)
         {
-            Response response = new Response();
             DAL dal = new DAL();
+            string cs = _configuration.GetConnectionString("PostgresCS");
 
-            using (SqlConnection connection = new SqlConnection(_configuration.GetConnectionString("EMedCS")))
-            {
-                response = dal.GetOrderDetails(userId, orderId, connection);
-            }
+            if (string.IsNullOrEmpty(cs))
+                return BadRequest("Postgres connection string missing");
+
+            using var connection = new NpgsqlConnection(cs);
+            var response = dal.GetOrderDetails(userId, orderId, connection);
 
             return Ok(response);
         }
+
+
+        [HttpPost("cancelOrder")]
+        public IActionResult CancelOrder([FromBody] CancelOrderDto dto)
+        {
+            if (dto == null)
+                return BadRequest("Invalid request");
+
+            DAL dal = new DAL();
+
+            string cs = _configuration.GetConnectionString("PostgresCS");
+            if (string.IsNullOrEmpty(cs))
+                return BadRequest("Postgres connection string missing");
+
+            using var connection = new NpgsqlConnection(cs);
+            var response = dal.cancelOrder(dto, connection);
+
+            return Ok(response);
+        }
+
     }
 }

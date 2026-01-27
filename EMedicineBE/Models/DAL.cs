@@ -1,138 +1,116 @@
-﻿using Azure;
-using Microsoft.AspNetCore.Mvc.Formatters;
+﻿using Microsoft.AspNetCore.Mvc.Formatters;
 using Microsoft.AspNetCore.ResponseCompression;
-using Microsoft.Data.SqlClient;
+using Npgsql;
+using System.Collections.Generic;
 using System.Data;
 
 namespace EMedicineBE.Models
 {
     public class DAL
     {
-        public Response register(RegisterRequest users, SqlConnection connection)
+        public Response register(RegisterRequest users, NpgsqlConnection connection)
         {
             Response response = new Response();
-            SqlCommand cmd = new SqlCommand("user_register_sp", connection);
-            cmd.CommandType = System.Data.CommandType.StoredProcedure;
+
+            string sql = @"
+        INSERT INTO cfg_set_user
+        (first_name, last_name, password, email, fund, type, status, picture)
+        VALUES
+        (@first_name, @last_name, @password, @email, 0, 'Users', 'Pending', @picture);
+         ";
+
+            using var cmd = new NpgsqlCommand(sql, connection);
+
             cmd.Parameters.AddWithValue("@first_name", users.first_name);
             cmd.Parameters.AddWithValue("@last_name", users.last_name);
             cmd.Parameters.AddWithValue("@password", users.password);
             cmd.Parameters.AddWithValue("@email", users.email);
-            cmd.Parameters.AddWithValue("@fund", 0);
-            cmd.Parameters.AddWithValue("@type", "Users");
-            cmd.Parameters.AddWithValue("@status", "Pending");
-            cmd.Parameters.AddWithValue("@picture", users.picture ?? (object)DBNull.Value);
+            cmd.Parameters.AddWithValue("@picture", (object?)users.picture ?? DBNull.Value);
 
             connection.Open();
-            int i = cmd.ExecuteNonQuery();
+            int rows = cmd.ExecuteNonQuery();
             connection.Close();
-            if (i > 0)
+
+            response.StatusCode = rows > 0 ? 200 : 100;
+            response.StatusMessage = rows > 0
+                ? "User Registered Successfully"
+                : "User Registration Failed";
+
+            return response;
+        }
+
+
+
+        public Response login(User users, NpgsqlConnection connection)
+        {
+            Response response = new Response();
+
+            string sql = @"
+        SELECT user_id, first_name, last_name, email, type, picture
+        FROM cfg_set_user
+        WHERE email = @email AND password = @password;
+    ";
+
+            using var cmd = new NpgsqlCommand(sql, connection);
+            cmd.Parameters.AddWithValue("@email", users.email);
+            cmd.Parameters.AddWithValue("@password", users.password);
+
+            connection.Open();
+            using var reader = cmd.ExecuteReader();
+
+            if (reader.Read())
             {
+                response.user = new User
+                {
+                    user_id = reader.GetInt32(0),
+                    first_name = reader.GetString(1),
+                    last_name = reader.GetString(2),
+                    email = reader.GetString(3),
+                    type = reader.GetString(4),
+                    picture = reader.IsDBNull(5) ? null : reader.GetString(5)
+                };
+
                 response.StatusCode = 200;
-                response.StatusMessage = "User Registered Successfully";
+                response.StatusMessage = "User Is Valid";
             }
             else
             {
                 response.StatusCode = 100;
-                response.StatusMessage = "User Registration Failed";
+                response.StatusMessage = "User Is Invalid";
             }
 
-            return response;
-        }
-
-        public Response login(User users, SqlConnection connection)
-        {
-            Response response = new Response();
-
-            try
-            {
-                if (users == null)
-                {
-                    response.StatusCode = 400;
-                    response.StatusMessage = "Invalid request";
-                    return response;
-                }
-
-                string email = users.email?.Trim();
-                string password = users.password?.Trim();
-
-                if (string.IsNullOrEmpty(email) || string.IsNullOrEmpty(password))
-                {
-                    response.StatusCode = 400;
-                    response.StatusMessage = "Email and Password are required";
-                    return response;
-                }
-
-                using (SqlCommand cmd = new SqlCommand("user_login_sp", connection))
-                {
-                    cmd.CommandType = CommandType.StoredProcedure;
-
-                    cmd.Parameters.Add("@email", SqlDbType.VarChar, 100).Value = email;
-                    cmd.Parameters.Add("@password", SqlDbType.VarChar, 100).Value = password;
-
-                    if (connection.State != ConnectionState.Open)
-                        connection.Open();
-
-                    using (SqlDataReader reader = cmd.ExecuteReader())
-                    {
-                        if (reader.Read())
-                        {
-                            User loggedUser = new User
-                            {
-                                user_id = reader["user_id"] != DBNull.Value ? Convert.ToInt32(reader["user_id"]) : 0,
-                                first_name = reader["first_name"]?.ToString(),
-                                last_name = reader["last_name"]?.ToString(),
-                                email = reader["email"]?.ToString(),
-                                type = reader["type"]?.ToString(),
-                                picture = reader["picture"]?.ToString(),
-                            };
-
-                            response.StatusCode = 200;
-                            response.StatusMessage = "User Is Valid";
-                            response.user = loggedUser;
-                        }
-                        else
-                        {
-                            response.StatusCode = 100;
-                            response.StatusMessage = "User Is Invalid";
-                        }
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                response.StatusCode = 500;
-                response.StatusMessage = "Error: " + ex.Message;
-            }
-            finally
-            {
-                if (connection.State == ConnectionState.Open)
-                    connection.Close();
-            }
-
+            connection.Close();
             return response;
         }
 
 
 
-        public Response viewUser(User users, SqlConnection connection)
+
+        public Response viewUser(User users, NpgsqlConnection connection)
         {
-            SqlDataAdapter da = new SqlDataAdapter("user_view_sp", connection);
-            da.SelectCommand.CommandType = System.Data.CommandType.StoredProcedure;
-            da.SelectCommand.Parameters.AddWithValue("@user_id", users.user_id);
-            DataTable dt = new DataTable();
-            da.Fill(dt);
             Response response = new Response();
-            User user = new User();
-            if (dt.Rows.Count > 0)
+
+            string sql = "SELECT * FROM cfg_set_user WHERE user_id = @user_id";
+
+            using var cmd = new NpgsqlCommand(sql, connection);
+            cmd.Parameters.AddWithValue("@user_id", users.user_id);
+
+            connection.Open();
+            using var reader = cmd.ExecuteReader();
+
+            if (reader.Read())
             {
-                users.user_id = Convert.ToInt32(dt.Rows[0]["user_id"]);
-                users.first_name = Convert.ToString(dt.Rows[0]["first_name"]);
-                users.last_name = Convert.ToString(dt.Rows[0]["last_name"]);
-                users.password = Convert.ToString(dt.Rows[0]["password"]);
-                users.email = Convert.ToString(dt.Rows[0]["email"]);
-                users.type = Convert.ToString(dt.Rows[0]["type"]);
-                users.fund = Convert.ToDecimal(dt.Rows[0]["fund"]);
-                users.create_time = Convert.ToDateTime(dt.Rows[0]["create_time"]);
+                users.user_id = reader.GetInt32(reader.GetOrdinal("user_id"));
+                users.first_name = reader.GetString(reader.GetOrdinal("first_name"));
+                users.last_name = reader.GetString(reader.GetOrdinal("last_name"));
+                users.password = reader.GetString(reader.GetOrdinal("password"));
+                users.email = reader.GetString(reader.GetOrdinal("email"));
+                users.type = reader.GetString(reader.GetOrdinal("type"));
+                users.fund = reader.IsDBNull(reader.GetOrdinal("fund"))
+                    ? 0
+                    : reader.GetDecimal(reader.GetOrdinal("fund"));
+                users.create_time = reader.GetDateTime(reader.GetOrdinal("create_time"));
+
                 response.StatusCode = 200;
                 response.StatusMessage = "User Exists";
                 response.user = users;
@@ -140,45 +118,59 @@ namespace EMedicineBE.Models
             else
             {
                 response.StatusCode = 100;
-                response.StatusMessage = "User Doesn't Exists";
-                response.user = users;
+                response.StatusMessage = "User Doesn't Exist";
+                response.user = null;
             }
+
+            connection.Close();
             return response;
         }
 
-        public Response updateProfile(UpdateProfileRequest users, SqlConnection connection)
+
+        public Response updateProfile(UpdateProfileRequest users, NpgsqlConnection connection)
         {
             Response response = new Response();
-            SqlCommand cmd = new SqlCommand("update_profile_sp", connection);
-            cmd.CommandType = CommandType.StoredProcedure;
+
+            string sql = @"
+        UPDATE cfg_set_user
+        SET
+            first_name = @first_name,
+            last_name  = @last_name,
+            password   = @password,
+            email      = @email
+        WHERE user_id = @user_id";
+
+            using var cmd = new NpgsqlCommand(sql, connection);
+
             cmd.Parameters.AddWithValue("@user_id", users.user_id);
-            cmd.Parameters.AddWithValue("@first_name",users.first_name);
+            cmd.Parameters.AddWithValue("@first_name", users.first_name);
             cmd.Parameters.AddWithValue("@last_name", users.last_name);
             cmd.Parameters.AddWithValue("@password", users.password);
             cmd.Parameters.AddWithValue("@email", users.email);
+
             connection.Open();
             int i = cmd.ExecuteNonQuery();
             connection.Close();
-            if (i > 0)
-            {
-                response.StatusCode = 200;
-                response.StatusMessage = "Profile Updated Succesfully";
-            }
-            else
-            {
-                response.StatusCode = 100;
-                response.StatusMessage = "Some error occured while updating profile";
-            }
+
+            response.StatusCode = i > 0 ? 200 : 100;
+            response.StatusMessage = i > 0
+                ? "Profile Updated Successfully"
+                : "Some error occurred while updating profile";
 
             return response;
         }
 
-        public Response addToCart(Cart cart, SqlConnection connection)
+        public Response addToCart(Cart cart, NpgsqlConnection connection)
         {
             Response response = new Response();
 
-            SqlCommand cmd = new SqlCommand("add_to_cart_sp", connection);
-            cmd.CommandType = CommandType.StoredProcedure;
+            string sql = @"
+        INSERT INTO cfg_set_cart
+        (user_id, medicine_id, unit_price, discount, qty, total_price)
+        VALUES
+        (@user_id, @medicine_id, @unit_price, @discount, @qty, @total_price)";
+
+            using var cmd = new NpgsqlCommand(sql, connection);
 
             cmd.Parameters.AddWithValue("@user_id", cart.user_id);
             cmd.Parameters.AddWithValue("@medicine_id", cart.medicine_id);
@@ -191,155 +183,182 @@ namespace EMedicineBE.Models
             int i = cmd.ExecuteNonQuery();
             connection.Close();
 
-            if (i > 0)
-            {
-                response.StatusCode = 200;
-                response.StatusMessage = "Medicine added to cart successfully";
-            }
-            else
-            {
-                response.StatusCode = 100;
-                response.StatusMessage = "Failed to add medicine to cart";
-            }
+            response.StatusCode = i > 0 ? 200 : 100;
+            response.StatusMessage = i > 0
+                ? "Medicine added to cart successfully"
+                : "Failed to add medicine to cart";
 
             return response;
         }
 
-        public Response placeOrder(PlaceOrderDto dto, SqlConnection connection)
+        public Response placeOrder(PlaceOrderDto dto, NpgsqlConnection connection)
         {
             Response response = new Response();
-
-            SqlCommand cmd = new SqlCommand("place_order_sp", connection);
-            cmd.CommandType = CommandType.StoredProcedure;
-
-            cmd.Parameters.AddWithValue("@user_id", dto.user_id);
-
-            SqlParameter resultParam = new SqlParameter("@result", System.Data.SqlDbType.Int);
-            resultParam.Direction = System.Data.ParameterDirection.Output;
-            cmd.Parameters.Add(resultParam);
 
             connection.Open();
-            cmd.ExecuteNonQuery();
-            connection.Close();
-
-            int result = Convert.ToInt32(resultParam.Value);
-
-            if (result == 1)
-            {
-                response.StatusCode = 200;
-                response.StatusMessage = "Order placed successfully";
-            }
-            else if (result == 0)
-            {
-                response.StatusCode = 100;
-                response.StatusMessage = "Cart is empty";
-            }
-            else
-            {
-                response.StatusCode = 500;
-                response.StatusMessage = "Failed to place order";
-            }
-
-            return response;
-        }
-
-
-        public Response userOrderList(int userId, SqlConnection connection)
-        {
-            Response response = new Response();
+            using var transaction = connection.BeginTransaction();
 
             try
             {
-                SqlCommand cmd = new SqlCommand("user_order_list_sp", connection);
-                cmd.CommandType = CommandType.StoredProcedure;
-                cmd.Parameters.AddWithValue("@user_id", userId);
+                // 1️⃣ Check cart
+                string cartCheckSql = "SELECT COUNT(*) FROM cfg_set_cart WHERE user_id=@user_id";
+                using var checkCmd = new NpgsqlCommand(cartCheckSql, connection, transaction);
+                checkCmd.Parameters.AddWithValue("@user_id", dto.user_id);
 
-                SqlDataAdapter da = new SqlDataAdapter(cmd);
-                DataSet ds = new DataSet();
-                da.Fill(ds);
-
-                // ds.Tables[0] = Orders
-                // ds.Tables[1] = Order Items
-
-                if (ds.Tables.Count < 2)
+                int cartCount = Convert.ToInt32(checkCmd.ExecuteScalar());
+                if (cartCount == 0)
                 {
                     response.StatusCode = 100;
-                    response.StatusMessage = "No orders found";
-                    response.listOrders = new List<Order>();
+                    response.StatusMessage = "Cart is empty";
+                    transaction.Rollback();
+                    connection.Close();
                     return response;
                 }
 
-                DataTable dtOrders = ds.Tables[0];
-                DataTable dtItems = ds.Tables[1];
+                // 2️⃣ Create order
+                string orderSql = @"
+            INSERT INTO cfg_set_order
+            (user_id, order_no, order_total, order_status, placed_time)
+            VALUES
+            (@user_id, @order_no,
+             (SELECT SUM(total_price) FROM cfg_set_cart WHERE user_id=@user_id),
+             'Pending', NOW())
+            RETURNING id";
 
-                List<Order> orders = new List<Order>();
+                using var orderCmd = new NpgsqlCommand(orderSql, connection, transaction);
+                orderCmd.Parameters.AddWithValue("@user_id", dto.user_id);
+                orderCmd.Parameters.AddWithValue("@order_no", "ORD-" + Guid.NewGuid());
 
-                // ✅ Read Orders
-                foreach (DataRow row in dtOrders.Rows)
-                {
-                    Order order = new Order();
-                    order.id = Convert.ToInt32(row["id"]);
-                    order.user_id = Convert.ToInt32(row["user_id"]);
-                    order.order_no = row["order_no"].ToString();
-                    order.order_total = Convert.ToDecimal(row["order_total"]);
-                    order.order_status = row["order_status"].ToString();
-                    order.placed_time = row["placed_time"] == DBNull.Value ? null : Convert.ToDateTime(row["placed_time"]);
-                    order.shipped_time = row["shipped_time"] == DBNull.Value ? null : Convert.ToDateTime(row["shipped_time"]);
-                    order.out_for_delivery_time = row["out_for_delivery_time"] == DBNull.Value ? null : Convert.ToDateTime(row["out_for_delivery_time"]);
-                    order.delivered_time = row["delivered_time"] == DBNull.Value ? null : Convert.ToDateTime(row["delivered_time"]);
+                int orderId = Convert.ToInt32(orderCmd.ExecuteScalar());
 
-                    order.expected_delivery_date = row["expected_delivery_date"] == DBNull.Value ? null : Convert.ToDateTime(row["expected_delivery_date"]);
+                // 3️⃣ Move cart → order items
+                string itemSql = @"
+            INSERT INTO cfg_set_order_item
+            (user_id, order_id, medicine_id, unit_price, discount, qty, total_price)
+            SELECT user_id, @order_id, medicine_id, unit_price, discount, qty, total_price
+            FROM cfg_set_cart
+            WHERE user_id=@user_id";
 
-                    orders.Add(order);
-                }
+                using var itemCmd = new NpgsqlCommand(itemSql, connection, transaction);
+                itemCmd.Parameters.AddWithValue("@order_id", orderId);
+                itemCmd.Parameters.AddWithValue("@user_id", dto.user_id);
+                itemCmd.ExecuteNonQuery();
 
-                // ✅ Read Items and attach to orders
-                foreach (DataRow row in dtItems.Rows)
-                {
-                    OrderItem item = new OrderItem();
-                    item.id = Convert.ToInt32(row["id"]);
-                    item.order_id = Convert.ToInt32(row["order_id"]);
-                    item.user_id = Convert.ToInt32(row["user_id"]);
-                    item.medicine_id = Convert.ToInt32(row["medicine_id"]);
-                    item.unit_price = Convert.ToDecimal(row["unit_price"]);
-                    item.discount = Convert.ToDecimal(row["discount"]);
-                    item.qty = Convert.ToInt32(row["qty"]);
-                    item.total_price = Convert.ToDecimal(row["total_price"]);
-                    item.medicine_name = row["medicine_name"].ToString();
-                    item.image_url = row["image_url"].ToString();
+                // 4️⃣ Clear cart
+                string clearSql = "DELETE FROM cfg_set_cart WHERE user_id=@user_id";
+                using var clearCmd = new NpgsqlCommand(clearSql, connection, transaction);
+                clearCmd.Parameters.AddWithValue("@user_id", dto.user_id);
+                clearCmd.ExecuteNonQuery();
 
-                    // find order and add item
-                    var order = orders.FirstOrDefault(o => o.id == item.order_id);
-                    if (order != null)
-                    {
-                        order.items.Add(item);
-                    }
-                }
+                transaction.Commit();
 
                 response.StatusCode = 200;
-                response.StatusMessage = "User order list fetched successfully";
-                response.listOrders = orders;
+                response.StatusMessage = "Order placed successfully";
             }
             catch (Exception ex)
             {
+                transaction.Rollback();
                 response.StatusCode = 500;
                 response.StatusMessage = "Error: " + ex.Message;
-                response.listOrders = new List<Order>();
+            }
+            finally
+            {
+                connection.Close();
             }
 
             return response;
         }
 
 
-        public Response addUpdateMedicine(Medicine medicines, SqlConnection connection)
+
+        public Response userOrderList(int userId, NpgsqlConnection connection)
+        {
+            Response response = new Response();
+            List<Order> orders = new List<Order>();
+
+            connection.Open();
+
+            // 1️⃣ Orders
+            string orderSql = "SELECT * FROM cfg_set_order WHERE user_id=@user_id ORDER BY id DESC";
+            using var orderCmd = new NpgsqlCommand(orderSql, connection);
+            orderCmd.Parameters.AddWithValue("@user_id", userId);
+
+            using var orderReader = orderCmd.ExecuteReader();
+            while (orderReader.Read())
+            {
+                orders.Add(new Order
+                {
+                    id = orderReader.GetInt32(orderReader.GetOrdinal("id")),
+                    user_id = orderReader.GetInt32(orderReader.GetOrdinal("user_id")),
+                    order_no = orderReader.GetString(orderReader.GetOrdinal("order_no")),
+                    order_total = orderReader.GetDecimal(orderReader.GetOrdinal("order_total")),
+                    order_status = orderReader.GetString(orderReader.GetOrdinal("order_status")),
+                    items = new List<OrderItem>()
+                });
+            }
+            orderReader.Close();
+
+            // 2️⃣ Items
+            string itemSql = @"
+        SELECT oi.*, m.medicine_name, m.image_url
+        FROM cfg_set_order_item oi
+        JOIN cfg_set_medicine m ON m.id = oi.medicine_id
+        WHERE oi.user_id=@user_id";
+
+            using var itemCmd = new NpgsqlCommand(itemSql, connection);
+            itemCmd.Parameters.AddWithValue("@user_id", userId);
+
+            using var itemReader = itemCmd.ExecuteReader();
+            while (itemReader.Read())
+            {
+                var item = new OrderItem
+                {
+                    id = itemReader.GetInt32(itemReader.GetOrdinal("id")),
+                    order_id = itemReader.GetInt32(itemReader.GetOrdinal("order_id")),
+                    medicine_name = itemReader.GetString(itemReader.GetOrdinal("medicine_name")),
+                    image_url = itemReader.GetString(itemReader.GetOrdinal("image_url"))
+                };
+
+                orders.First(o => o.id == item.order_id).items.Add(item);
+            }
+
+            connection.Close();
+
+            response.StatusCode = 200;
+            response.StatusMessage = "User order list fetched";
+            response.listOrders = orders;
+            return response;
+        }
+
+
+        public Response addUpdateMedicine(Medicine medicines, NpgsqlConnection connection)
         {
             Response response = new Response();
 
-            SqlCommand cmd = new SqlCommand("add_updated_medicines_sp", connection);
-            cmd.CommandType = CommandType.StoredProcedure;
+            string sql = medicines.id == 0
+                ? @"INSERT INTO cfg_set_medicine
+            (medicine_name, manufacturer, unit_price, discount, qty, disease, uses, exp_date, image_url, status, type)
+            VALUES
+            (@medicine_name, @manufacturer, @unit_price, @discount, @qty, @disease, @uses, @exp_date, @image_url, @status, @type)"
+                : @"UPDATE cfg_set_medicine SET
+            medicine_name=@medicine_name,
+            manufacturer=@manufacturer,
+            unit_price=@unit_price,
+            discount=@discount,
+            qty=@qty,
+            disease=@disease,
+            uses=@uses,
+            exp_date=@exp_date,
+            image_url=@image_url,
+            status=@status,
+            type=@type
+            WHERE id=@id";
 
-            // Add all medicine fields
-            cmd.Parameters.AddWithValue("@medicine_id", medicines.id); // 0 for add
+            using var cmd = new NpgsqlCommand(sql, connection);
+
+            if (medicines.id > 0)
+                cmd.Parameters.AddWithValue("@id", medicines.id);
+
             cmd.Parameters.AddWithValue("@medicine_name", medicines.medicine_name);
             cmd.Parameters.AddWithValue("@manufacturer", medicines.manufacturer);
             cmd.Parameters.AddWithValue("@unit_price", medicines.unit_price);
@@ -356,119 +375,113 @@ namespace EMedicineBE.Models
             int i = cmd.ExecuteNonQuery();
             connection.Close();
 
-            if (i > 0)
-            {
-                // Decide message based on id (if 0 → add, else → update)
-                response.StatusCode = 200;
-                response.StatusMessage = medicines.id == 0
-                    ? "Medicine added successfully"
-                    : "Medicine updated successfully";
-            }
-            else
-            {
-                response.StatusCode = 100;
-                response.StatusMessage = "Failed to add/update medicine";
-            }
+            response.StatusCode = i > 0 ? 200 : 100;
+            response.StatusMessage = i > 0
+                ? (medicines.id == 0 ? "Medicine added successfully" : "Medicine updated successfully")
+                : "Failed to add/update medicine";
 
             return response;
         }
 
-        public Response userList(SqlConnection connection)
+
+        public Response userList(NpgsqlConnection connection)
         {
             Response response = new Response();
             List<User> userList = new List<User>();
 
-            SqlCommand cmd = new SqlCommand("user_list_sp", connection);
-            cmd.CommandType = CommandType.StoredProcedure;
-            SqlDataAdapter da = new SqlDataAdapter(cmd);
-            DataTable dt = new DataTable();
-            da.Fill(dt);
+            string sql = "SELECT * FROM cfg_set_user ORDER BY user_id DESC";
 
-            if (dt.Rows.Count > 0)
+            using var cmd = new NpgsqlCommand(sql, connection);
+            connection.Open();
+            using var reader = cmd.ExecuteReader();
+
+            while (reader.Read())
             {
-                foreach (DataRow row in dt.Rows)
+                userList.Add(new User
                 {
-                    User user = new User();
-
-                    user.user_id = Convert.ToInt32(row["user_id"]);
-                    user.first_name = row["first_name"].ToString();
-                    user.last_name = row["last_name"].ToString();
-                    user.password = row["password"].ToString();
-                    user.email = row["email"].ToString();
-                    user.fund = row["fund"] == DBNull.Value ? 0 : Convert.ToDecimal(row["fund"]);
-                    user.status = row["status"] == DBNull.Value ? "" : row["status"].ToString();
-                    user.create_time = row["create_time"] == DBNull.Value ? DateTime.MinValue : Convert.ToDateTime(row["create_time"]);
-
-                    userList.Add(user);
-                }
-
-                response.StatusCode = 200;
-                response.StatusMessage = "User list fetched successfully";
-                response.listUsers = userList; // Assuming Response has listUsers property
+                    user_id = reader.GetInt32(reader.GetOrdinal("user_id")),
+                    first_name = reader.GetString(reader.GetOrdinal("first_name")),
+                    last_name = reader.GetString(reader.GetOrdinal("last_name")),
+                    email = reader.GetString(reader.GetOrdinal("email")),
+                    fund = reader.IsDBNull(reader.GetOrdinal("fund")) ? 0 : reader.GetDecimal(reader.GetOrdinal("fund")),
+                    status = reader.IsDBNull(reader.GetOrdinal("status")) ? "" : reader.GetString(reader.GetOrdinal("status")),
+                    create_time = reader.IsDBNull(reader.GetOrdinal("create_time"))
+                        ? DateTime.MinValue
+                        : reader.GetDateTime(reader.GetOrdinal("create_time"))
+                });
             }
-            else
-            {
-                response.StatusCode = 100;
-                response.StatusMessage = "No users found";
-                response.listUsers = new List<User>();
-            }
+
+            connection.Close();
+
+            response.StatusCode = userList.Count > 0 ? 200 : 100;
+            response.StatusMessage = userList.Count > 0 ? "User list fetched successfully" : "No users found";
+            response.listUsers = userList;
 
             return response;
         }
 
-        public Response getMedicines(SqlConnection connection)
+
+        public Response getMedicines(NpgsqlConnection connection)
         {
             Response response = new Response();
             List<Medicine> medicines = new List<Medicine>();
 
-            SqlCommand cmd = new SqlCommand("get_all_medicines_sp", connection); // Create this SP in SQL
-            cmd.CommandType = CommandType.StoredProcedure;
+            string sql = "SELECT * FROM cfg_set_medicine ORDER BY id DESC";
 
-            SqlDataAdapter da = new SqlDataAdapter(cmd);
-            DataTable dt = new DataTable();
-            da.Fill(dt);
+            using var cmd = new NpgsqlCommand(sql, connection);
+            connection.Open();
+            using var reader = cmd.ExecuteReader();
 
-            if (dt.Rows.Count > 0)
+            while (reader.Read())
             {
-                foreach (DataRow row in dt.Rows)
+                medicines.Add(new Medicine
                 {
-                    Medicine med = new Medicine
-                    {
-                        id = Convert.ToInt32(row["id"]),
-                        medicine_name = row["medicine_name"].ToString(),
-                        manufacturer = row["manufacturer"].ToString(),
-                        unit_price = Convert.ToDecimal(row["unit_price"]),
-                        discount = Convert.ToDecimal(row["discount"]),
-                        qty = Convert.ToInt32(row["qty"]),
-                        disease = row["disease"].ToString(),
-                        uses = row["uses"].ToString(),
-                        exp_date = Convert.ToDateTime(row["exp_date"]),
-                        image_url = row["image_url"].ToString(),
-                        status = Convert.ToInt32(row["status"])
-                    };
-                    medicines.Add(med);
-                }
+                    id = reader.GetInt32(reader.GetOrdinal("id")),
+                    medicine_name = reader.GetString(reader.GetOrdinal("medicine_name")),
+                    manufacturer = reader.GetString(reader.GetOrdinal("manufacturer")),
+                    unit_price = reader.GetDecimal(reader.GetOrdinal("unit_price")),
+                    discount = reader.GetDecimal(reader.GetOrdinal("discount")),
+                    qty = reader.GetInt32(reader.GetOrdinal("qty")),
 
-                response.StatusCode = 200;
-                response.StatusMessage = "Medicines fetched successfully";
-                response.listMedicines = medicines;
-            }
-            else
-            {
-                response.StatusCode = 100;
-                response.StatusMessage = "No medicines found";
-                response.listMedicines = new List<Medicine>();
+                    disease = reader.IsDBNull(reader.GetOrdinal("disease"))
+                        ? null
+                        : reader.GetString(reader.GetOrdinal("disease")),
+
+                    uses = reader.IsDBNull(reader.GetOrdinal("uses"))
+                        ? null
+                        : reader.GetString(reader.GetOrdinal("uses")),
+
+                    exp_date = reader.GetDateTime(reader.GetOrdinal("exp_date")),
+
+                    image_url = reader.IsDBNull(reader.GetOrdinal("image_url"))
+                        ? null
+                        : reader.GetString(reader.GetOrdinal("image_url")),
+
+                    status = reader.IsDBNull(reader.GetOrdinal("status"))
+                        ? null
+                        : reader.GetString(reader.GetOrdinal("status"))
+                });
             }
 
+            connection.Close();
+
+            response.StatusCode = medicines.Count > 0 ? 200 : 100;
+            response.StatusMessage = medicines.Count > 0
+                ? "Medicines fetched successfully"
+                : "No medicines found";
+
+            response.listMedicines = medicines;
             return response;
         }
-        public Response updateProfilePicture(int userId, string pictureUrl, SqlConnection connection)
+
+
+        public Response updateProfilePicture(int userId, string pictureUrl, NpgsqlConnection connection)
         {
             Response response = new Response();
 
-            SqlCommand cmd = new SqlCommand("update_profile_picture_sp", connection);
-            cmd.CommandType = CommandType.StoredProcedure;
+            string sql = "UPDATE cfg_set_user SET picture=@picture WHERE user_id=@user_id";
 
+            using var cmd = new NpgsqlCommand(sql, connection);
             cmd.Parameters.AddWithValue("@user_id", userId);
             cmd.Parameters.AddWithValue("@picture", pictureUrl);
 
@@ -476,96 +489,83 @@ namespace EMedicineBE.Models
             int i = cmd.ExecuteNonQuery();
             connection.Close();
 
-            if (i > 0)
-            {
-                response.StatusCode = 200;
-                response.StatusMessage = "Profile picture updated successfully";
-            }
-            else
-            {
-                response.StatusCode = 100;
-                response.StatusMessage = "Profile picture update failed";
-            }
+            response.StatusCode = i > 0 ? 200 : 100;
+            response.StatusMessage = i > 0
+                ? "Profile picture updated successfully"
+                : "Profile picture update failed";
 
             return response;
         }
-        public Response getCartItems(int userId, SqlConnection connection)
+
+        public Response getCartItems(int userId, NpgsqlConnection connection)
         {
             Response response = new Response();
             List<Cart> cartList = new List<Cart>();
 
-            SqlCommand cmd = new SqlCommand("get_cart_items_sp", connection);
-            cmd.CommandType = CommandType.StoredProcedure;
+            string sql = @"
+        SELECT c.*, m.medicine_name, m.image_url
+        FROM cfg_set_cart c
+        JOIN cfg_set_medicine m ON m.id = c.medicine_id
+        WHERE c.user_id = @user_id";
+
+            using var cmd = new NpgsqlCommand(sql, connection);
             cmd.Parameters.AddWithValue("@user_id", userId);
 
-            SqlDataAdapter da = new SqlDataAdapter(cmd);
-            DataTable dt = new DataTable();
-            da.Fill(dt);
+            connection.Open();
+            using var reader = cmd.ExecuteReader();
 
-            if (dt.Rows.Count > 0)
+            while (reader.Read())
             {
-                foreach (DataRow row in dt.Rows)
+                cartList.Add(new Cart
                 {
-                    Cart cart = new Cart();
-                    cart.id = Convert.ToInt32(row["id"]);
-                    cart.user_id = Convert.ToInt32(row["user_id"]);
-                    cart.medicine_id = Convert.ToInt32(row["medicine_id"]);
-                    cart.qty = Convert.ToInt32(row["qty"]);
-                    cart.unit_price = Convert.ToDecimal(row["unit_price"]);
-                    cart.discount = Convert.ToDecimal(row["discount"]);
-                    cart.total_price = Convert.ToDecimal(row["total_price"]);
-
-                    cart.medicine_name = row["medicine_name"].ToString();
-                    cart.image_url = row["image_url"].ToString();
-
-                    cartList.Add(cart);
-                }
-
-                response.StatusCode = 200;
-                response.StatusMessage = "Cart items fetched";
-                response.listCarts = cartList;
+                    id = reader.GetInt32(reader.GetOrdinal("id")),
+                    user_id = reader.GetInt32(reader.GetOrdinal("user_id")),
+                    medicine_id = reader.GetInt32(reader.GetOrdinal("medicine_id")),
+                    qty = reader.GetInt32(reader.GetOrdinal("qty")),
+                    unit_price = reader.GetDecimal(reader.GetOrdinal("unit_price")),
+                    discount = reader.GetDecimal(reader.GetOrdinal("discount")),
+                    total_price = reader.GetDecimal(reader.GetOrdinal("total_price")),
+                    medicine_name = reader.GetString(reader.GetOrdinal("medicine_name")),
+                    image_url = reader.GetString(reader.GetOrdinal("image_url"))
+                });
             }
-            else
-            {
-                response.StatusCode = 100;
-                response.StatusMessage = "Cart is empty";
-                response.listCarts = new List<Cart>();
-            }
+
+            connection.Close();
+
+            response.StatusCode = cartList.Count > 0 ? 200 : 100;
+            response.StatusMessage = cartList.Count > 0 ? "Cart items fetched" : "Cart is empty";
+            response.listCarts = cartList;
 
             return response;
         }
 
-        public Response removeCartItem(int cartId, SqlConnection connection)
+
+        public Response removeCartItem(int cartId, NpgsqlConnection connection)
         {
             Response response = new Response();
 
-            SqlCommand cmd = new SqlCommand("remove_cart_item_sp", connection);
-            cmd.CommandType = CommandType.StoredProcedure;
+            string sql = "DELETE FROM cfg_set_cart WHERE id=@cart_id";
+
+            using var cmd = new NpgsqlCommand(sql, connection);
             cmd.Parameters.AddWithValue("@cart_id", cartId);
 
             connection.Open();
             int i = cmd.ExecuteNonQuery();
             connection.Close();
 
-            if (i > 0)
-            {
-                response.StatusCode = 200;
-                response.StatusMessage = "Item removed from cart";
-            }
-            else
-            {
-                response.StatusCode = 100;
-                response.StatusMessage = "Failed to remove item";
-            }
+            response.StatusCode = i > 0 ? 200 : 100;
+            response.StatusMessage = i > 0 ? "Item removed from cart" : "Failed to remove item";
 
             return response;
         }
-        public Response updateCartQty(int cartId, int qty, SqlConnection connection)
+
+        public Response updateCartQty(int cartId, int qty, NpgsqlConnection connection)
         {
             Response response = new Response();
 
-            SqlCommand cmd = new SqlCommand("update_cart_qty_sp", connection);
-            cmd.CommandType = CommandType.StoredProcedure;
+            string sql = "UPDATE cfg_set_cart SET qty=@qty,total_price = (@qty * unit_price) - discount WHERE id=@cart_id";
+
+            using var cmd = new NpgsqlCommand(sql, connection);
             cmd.Parameters.AddWithValue("@cart_id", cartId);
             cmd.Parameters.AddWithValue("@qty", qty);
 
@@ -573,83 +573,143 @@ namespace EMedicineBE.Models
             int i = cmd.ExecuteNonQuery();
             connection.Close();
 
-            if (i > 0)
-            {
-                response.StatusCode = 200;
-                response.StatusMessage = "Cart quantity updated";
-            }
-            else
-            {
-                response.StatusCode = 100;
-                response.StatusMessage = "Failed to update quantity";
-            }
+            response.StatusCode = i > 0 ? 200 : 100;
+            response.StatusMessage = i > 0 ? "Cart quantity updated" : "Failed to update quantity";
 
             return response;
         }
-        public Response GetOrderDetails(int userId, int orderId, SqlConnection connection)
+
+        public Response GetOrderDetails(int userId, int orderId, NpgsqlConnection connection)
         {
             Response response = new Response();
+            Order order = null;
 
-            try
+            connection.Open();
+
+            // Order header
+            string orderSql = "SELECT * FROM cfg_set_order WHERE id=@order_id AND user_id=@user_id";
+            using var orderCmd = new NpgsqlCommand(orderSql, connection);
+            orderCmd.Parameters.AddWithValue("@order_id", orderId);
+            orderCmd.Parameters.AddWithValue("@user_id", userId);
+
+            using var reader = orderCmd.ExecuteReader();
+            if (!reader.Read())
             {
-                SqlCommand cmd = new SqlCommand("order_details_sp", connection);
-                cmd.CommandType = CommandType.StoredProcedure;
-                cmd.Parameters.AddWithValue("@order_id", orderId);
-                cmd.Parameters.AddWithValue("@user_id", userId);
-
-                SqlDataAdapter da = new SqlDataAdapter(cmd);
-                DataSet ds = new DataSet();
-                da.Fill(ds);
-
-                if (ds.Tables.Count < 2 || ds.Tables[0].Rows.Count == 0)
-                {
-                    response.StatusCode = 100;
-                    response.StatusMessage = "Order not found";
-                    response.order = null;
-                    return response;
-                }
-
-                DataRow orderRow = ds.Tables[0].Rows[0];
-                DataTable dtItems = ds.Tables[1];
-
-                Order order = new Order();
-                order.id = Convert.ToInt32(orderRow["id"]);
-                order.user_id = Convert.ToInt32(orderRow["user_id"]);
-                order.order_no = orderRow["order_no"].ToString();
-                order.order_total = Convert.ToDecimal(orderRow["order_total"]);
-                order.order_status = orderRow["order_status"].ToString();
-
-                foreach (DataRow row in dtItems.Rows)
-                {
-                    OrderItem item = new OrderItem();
-                    item.id = Convert.ToInt32(row["id"]);
-                    item.order_id = Convert.ToInt32(row["order_id"]);
-                    item.user_id = Convert.ToInt32(row["user_id"]);
-                    item.medicine_id = Convert.ToInt32(row["medicine_id"]);
-                    item.unit_price = Convert.ToDecimal(row["unit_price"]);
-                    item.discount = Convert.ToDecimal(row["discount"]);
-                    item.qty = Convert.ToInt32(row["qty"]);
-                    item.total_price = Convert.ToDecimal(row["total_price"]);
-                    item.medicine_name = row["medicine_name"].ToString();
-                    item.image_url = row["image_url"].ToString();
-
-                    order.items.Add(item);
-                }
-
-                response.StatusCode = 200;
-                response.StatusMessage = "Order details fetched successfully";
-                response.order = order;
+                response.StatusCode = 100;
+                response.StatusMessage = "Order not found";
+                connection.Close();
+                return response;
             }
-            catch (Exception ex)
+
+            order = new Order
             {
-                response.StatusCode = 500;
-                response.StatusMessage = "Error: " + ex.Message;
-                response.order = null;
+                id = reader.GetInt32(reader.GetOrdinal("id")),
+                user_id = reader.GetInt32(reader.GetOrdinal("user_id")),
+                order_no = reader.GetString(reader.GetOrdinal("order_no")),
+                order_total = reader.GetDecimal(reader.GetOrdinal("order_total")),
+                order_status = reader.GetString(reader.GetOrdinal("order_status")),
+                items = new List<OrderItem>()
+            };
+            reader.Close();
+
+            // Items
+            string itemSql = @"
+        SELECT oi.*, m.medicine_name, m.image_url
+        FROM cfg_set_order_item oi
+        JOIN cfg_set_medicine m ON m.id = oi.medicine_id
+        WHERE oi.order_id=@order_id";
+
+            using var itemCmd = new NpgsqlCommand(itemSql, connection);
+            itemCmd.Parameters.AddWithValue("@order_id", orderId);
+
+            using var itemReader = itemCmd.ExecuteReader();
+            while (itemReader.Read())
+            {
+                order.items.Add(new OrderItem
+                {
+                    id = itemReader.GetInt32(itemReader.GetOrdinal("id")),
+                    medicine_name = itemReader.GetString(itemReader.GetOrdinal("medicine_name")),
+                    image_url = itemReader.GetString(itemReader.GetOrdinal("image_url")),
+                    qty = itemReader.GetInt32(itemReader.GetOrdinal("qty")),
+                    unit_price = itemReader.GetDecimal(itemReader.GetOrdinal("unit_price")),
+                    total_price = itemReader.GetDecimal(itemReader.GetOrdinal("total_price"))
+                });
             }
+
+            connection.Close();
+
+            response.StatusCode = 200;
+            response.StatusMessage = "Order details fetched successfully";
+            response.order = order;
 
             return response;
         }
 
+public Response cancelOrder(CancelOrderDto dto, NpgsqlConnection connection)
+    {
+        Response response = new Response();
+
+        string sql = "SELECT cancel_order_fn(@user_id, @order_id)";
+
+        using var cmd = new NpgsqlCommand(sql, connection);
+        cmd.Parameters.AddWithValue("@user_id", dto.user_id);
+        cmd.Parameters.AddWithValue("@order_id", dto.order_id);
+
+        connection.Open();
+        int result = Convert.ToInt32(cmd.ExecuteScalar());
+        connection.Close();
+
+        if (result == 1)
+        {
+            response.StatusCode = 200;
+            response.StatusMessage = "Order cancelled successfully";
+        }
+        else if (result == 0)
+        {
+            response.StatusCode = 100;
+            response.StatusMessage = "Order not found";
+        }
+        else if (result == -2)
+        {
+            response.StatusCode = 100;
+            response.StatusMessage = "Delivered order cannot be cancelled";
+        }
+        else
+        {
+            response.StatusCode = 500;
+            response.StatusMessage = "Failed to cancel order";
+        }
+
+        return response;
+    }
+        public DataSet getInvoiceData(int userId, int orderId, NpgsqlConnection connection)
+        {
+            DataSet ds = new DataSet();
+
+            // ---------- HEADER ----------
+            string headerSql = "SELECT * FROM invoice_header_fn(@user_id, @order_id)";
+            using (var headerCmd = new NpgsqlCommand(headerSql, connection))
+            {
+                headerCmd.Parameters.AddWithValue("@user_id", userId);
+                headerCmd.Parameters.AddWithValue("@order_id", orderId);
+
+                using var da = new NpgsqlDataAdapter(headerCmd);
+                da.Fill(ds, "InvoiceHeader");
+            }
+
+            // ---------- ITEMS ----------
+            string itemsSql = "SELECT * FROM invoice_items_fn(@user_id, @order_id)";
+            using (var itemsCmd = new NpgsqlCommand(itemsSql, connection))
+            {
+                itemsCmd.Parameters.AddWithValue("@user_id", userId);
+                itemsCmd.Parameters.AddWithValue("@order_id", orderId);
+
+                using var da = new NpgsqlDataAdapter(itemsCmd);
+                da.Fill(ds, "InvoiceItems");
+            }
+
+            return ds;
+        }
 
     }
 }
