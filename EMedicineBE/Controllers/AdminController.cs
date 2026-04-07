@@ -1,4 +1,6 @@
-﻿using EMedicineBE.Models;
+﻿using EMedicineBE.Entities;
+using EMedicineBE.Models;
+using EMedicineBE.Services.Interfaces;
 using Microsoft.AspNetCore.Mvc;
 using Npgsql;
 
@@ -8,62 +10,37 @@ namespace EMedicineBE.Controllers
     [ApiController]
     public class AdminController : ControllerBase
     {
-        private readonly IConfiguration _configuration;
+        private readonly IMedicineService _service;
 
-        public AdminController(IConfiguration configuration)
+        public AdminController(IMedicineService service)
         {
-            _configuration = configuration;
+            _service = service;
         }
 
         // ✅ ADD / UPDATE MEDICINE
         [HttpPost("addUpdateMedicine")]
-        public IActionResult AddUpdateMedicine([FromBody] Medicine medicines)
-        {
-            if (medicines == null)
-                return BadRequest("Invalid medicine data");
-
-            DAL dal = new DAL();
-            string cs = _configuration.GetConnectionString("PostgresCS");
-
-            if (string.IsNullOrEmpty(cs))
-                return BadRequest("Postgres connection string missing");
-
-            using var connection = new NpgsqlConnection(cs);
-            var response = dal.addUpdateMedicine(medicines, connection);
-
-            return Ok(response);
-        }
+       public async Task<IActionResult> AddUpdateMedicine(Medicine medicine)
+            => Ok(await _service.Save(medicine));
 
         // ✅ USER LIST
-        [HttpGet("userList")]
-        public IActionResult UserList()
-        {
-            DAL dal = new DAL();
-            string cs = _configuration.GetConnectionString("PostgresCS");
+        //[HttpGet("userList")]
+        //public IActionResult UserList()
+        //{
+        //    DAL dal = new DAL();
+        //    string cs = _configuration.GetConnectionString("PostgresCS");
 
-            if (string.IsNullOrEmpty(cs))
-                return BadRequest("Postgres connection string missing");
+        //    if (string.IsNullOrEmpty(cs))
+        //        return BadRequest("Postgres connection string missing");
 
-            using var connection = new NpgsqlConnection(cs);
-            var response = dal.userList(connection);
+        //    using var connection = new NpgsqlConnection(cs);
+        //    var response = dal.userList(connection);
 
-            return Ok(response);
-        }
+        //    return Ok(response);
+        //}
 
         // ✅ GET MEDICINES
         [HttpGet("getMedicines")]
-        public IActionResult GetMedicines()
-        {
-            DAL dal = new DAL();
-            string cs = _configuration.GetConnectionString("PostgresCS");
-
-            if (string.IsNullOrEmpty(cs))
-                return BadRequest("Postgres connection string missing");
-
-            using var connection = new NpgsqlConnection(cs);
-            var response = dal.getMedicines(connection);
-
-            return Ok(response);
-        }
+        public async Task<IActionResult> GetMedicines()
+            => Ok(await _service.GetAll());
     }
 }

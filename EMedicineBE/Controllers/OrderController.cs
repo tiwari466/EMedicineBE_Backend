@@ -1,4 +1,6 @@
-﻿using EMedicineBE.Models;
+﻿using EMedicineBE.Dto.Order;
+using EMedicineBE.Models;
+using EMedicineBE.Services.Interfaces;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Configuration;
 using Npgsql;
@@ -9,82 +11,31 @@ namespace EMedicineBE.Controllers
     [ApiController]
     public class OrderController : ControllerBase
     {
-        private readonly IConfiguration _configuration;
+        private readonly IOrderService _service;
 
-        public OrderController(IConfiguration configuration)
+        public OrderController(IOrderService service)
         {
-            _configuration = configuration;
+            _service = service;
         }
 
         // ✅ USER ORDER LIST
-        [HttpGet("userOrderList/{user_id}")]
-        public IActionResult UserOrderList(int user_id)
-        {
-            DAL dal = new DAL();
-
-            string cs = _configuration.GetConnectionString("PostgresCS");
-            if (string.IsNullOrEmpty(cs))
-                return BadRequest("Postgres connection string missing");
-
-            using var connection = new NpgsqlConnection(cs);
-            var response = dal.userOrderList(user_id, connection);
-
-            return Ok(response);
-        }
-
-        // ✅ PLACE ORDER
         [HttpPost("placeOrder")]
-        public IActionResult PlaceOrder([FromBody] PlaceOrderDto dto)
-        {
-            if (dto == null || dto.user_id <= 0)
-                return BadRequest("Invalid order request");
+        public async Task<IActionResult> Place(PlaceOrderDto dto)
+                 => Ok(await _service.PlaceOrder(dto));
 
-            DAL dal = new DAL();
-            string cs = _configuration.GetConnectionString("PostgresCS");
+        [HttpGet("userOrderList/{user_id}")]
+        public async Task<IActionResult> UserOrders(int userId)
+            => Ok(await _service.UserOrders(userId));
 
-            if (string.IsNullOrEmpty(cs))
-                return BadRequest("Postgres connection string missing");
-
-            using var connection = new NpgsqlConnection(cs);
-            var response = dal.placeOrder(dto, connection);
-
-            return Ok(response);
-        }
-
-        // ✅ ORDER DETAILS
         [HttpGet("orderDetails/{userId}/{orderId}")]
-        public IActionResult GetOrderDetails(int userId, int orderId)
-        {
-            DAL dal = new DAL();
-            string cs = _configuration.GetConnectionString("PostgresCS");
-
-            if (string.IsNullOrEmpty(cs))
-                return BadRequest("Postgres connection string missing");
-
-            using var connection = new NpgsqlConnection(cs);
-            var response = dal.GetOrderDetails(userId, orderId, connection);
-
-            return Ok(response);
-        }
-
+        public async Task<IActionResult> Details(int userId, int orderId)
+            => Ok(await _service.OrderDetails(userId, orderId));
 
         [HttpPost("cancelOrder")]
-        public IActionResult CancelOrder([FromBody] CancelOrderDto dto)
-        {
-            if (dto == null)
-                return BadRequest("Invalid request");
-
-            DAL dal = new DAL();
-
-            string cs = _configuration.GetConnectionString("PostgresCS");
-            if (string.IsNullOrEmpty(cs))
-                return BadRequest("Postgres connection string missing");
-
-            using var connection = new NpgsqlConnection(cs);
-            var response = dal.cancelOrder(dto, connection);
-
-            return Ok(response);
-        }
+        public async Task<IActionResult> Cancel(CancelOrderDto dto)
+            => Ok(await _service.CancelOrder(dto));
 
     }
 }
+
+

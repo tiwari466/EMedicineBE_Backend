@@ -1,6 +1,9 @@
-﻿using EMedicineBE.Models;
+﻿using EMedicineBE.Dto.Cart;
+using EMedicineBE.Entities;
+using EMedicineBE.Models;
 using Microsoft.AspNetCore.Mvc;
 using Npgsql;
+using static iText.StyledXmlParser.Jsoup.Select.Evaluator;
 
 namespace EMedicineBE.Controllers
 {
@@ -8,81 +11,26 @@ namespace EMedicineBE.Controllers
     [ApiController]
     public class CartController : ControllerBase
     {
-        private readonly IConfiguration _configuration;
-
-        public CartController(IConfiguration configuration)
+        private readonly ICartService _service;
+        public CartController(ICartService service)
         {
-            _configuration = configuration;
+            _service = service;
         }
 
-        // ✅ ADD TO CART
         [HttpPost("addToCart")]
-        public IActionResult AddToCart([FromBody] Cart cart)
-        {
-            if (cart == null)
-                return BadRequest("Invalid cart data");
+        public async Task AddToCart([FromBody] Cart cart)
+            => Ok(await _service.Add(cart));
 
-            DAL dal = new DAL();
-            string cs = _configuration.GetConnectionString("PostgresCS");
-
-            if (string.IsNullOrEmpty(cs))
-                return BadRequest("Postgres connection string missing");
-
-            using var connection = new NpgsqlConnection(cs);
-            var response = dal.addToCart(cart, connection);
-
-            return Ok(response);
-        }
-
-        // ✅ GET CART ITEMS
         [HttpGet("getCartItems/{user_id}")]
-        public IActionResult GetCartItems(int user_id)
-        {
-            DAL dal = new DAL();
-            string cs = _configuration.GetConnectionString("PostgresCS");
+        public async Task<IActionResult> GetCartItems(int user_id)
+        => Ok(await _service.Items(user_id));
 
-            if (string.IsNullOrEmpty(cs))
-                return BadRequest("Postgres connection string missing");
-
-            using var connection = new NpgsqlConnection(cs);
-            var response = dal.getCartItems(user_id, connection);
-
-            return Ok(response);
-        }
-
-        // ✅ REMOVE CART ITEM
         [HttpDelete("removeCartItem/{cartId}")]
-        public IActionResult RemoveCartItem(int cartId)
-        {
-            DAL dal = new DAL();
-            string cs = _configuration.GetConnectionString("PostgresCS");
+        public async Task<IActionResult> RemoveCartItem(int cartId)
+            => Ok(await _service.Remove(cartId));
 
-            if (string.IsNullOrEmpty(cs))
-                return BadRequest("Postgres connection string missing");
-
-            using var connection = new NpgsqlConnection(cs);
-            var response = dal.removeCartItem(cartId, connection);
-
-            return Ok(response);
-        }
-
-        // ✅ UPDATE CART QTY
         [HttpPut("updateCartQty")]
-        public IActionResult UpdateCartQty([FromBody] UpdateCartQtyRequest req)
-        {
-            if (req == null)
-                return BadRequest("Invalid request");
-
-            DAL dal = new DAL();
-            string cs = _configuration.GetConnectionString("PostgresCS");
-
-            if (string.IsNullOrEmpty(cs))
-                return BadRequest("Postgres connection string missing");
-
-            using var connection = new NpgsqlConnection(cs);
-            var response = dal.updateCartQty(req.id, req.qty, connection);
-
-            return Ok(response);
-        }
+        public async Task<IActionResult> UpdateCartQty(int id, int qty)
+        => Ok(await _service.UpdateQty(id, qty));
     }
 }

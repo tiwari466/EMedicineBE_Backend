@@ -1,4 +1,6 @@
-﻿namespace EMedicineBE.Models
+﻿using EMedicineBE.Entities;
+
+namespace EMedicineBE.Models
 {
     public class Response
     {
