@@ -1,6 +1,9 @@
 ﻿using EMedicineBE.Data.Repositories;
 using EMedicineBE.Services.Interfaces;
 using EMedicineBE.Services.Implementations;
+using QuestPDF.Infrastructure;
+
+QuestPDF.Settings.License = LicenseType.Community;
 
 var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddScoped<IUserRepository, UserRepository>();

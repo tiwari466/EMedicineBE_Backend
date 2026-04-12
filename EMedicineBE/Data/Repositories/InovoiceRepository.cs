@@ -1,4 +1,4 @@
-﻿using Npgsql;
+﻿using Microsoft.Data.SqlClient;
 using System.Data;
 
 namespace EMedicineBE.Data.Repositories
@@ -9,27 +9,63 @@ namespace EMedicineBE.Data.Repositories
 
         public InvoiceRepository(IConfiguration config)
         {
-            _cs = config.GetConnectionString("PostgresCS");
+            _cs = config.GetConnectionString("SqlServerCS");
         }
 
         public DataSet GetInvoiceData(int userId, int orderId)
         {
             DataSet ds = new();
-            using var con = new NpgsqlConnection(_cs);
 
-            using var hCmd = new NpgsqlCommand(
-                "SELECT * FROM invoice_header_fn(@u,@o)", con);
-            hCmd.Parameters.AddWithValue("@u", userId);
-            hCmd.Parameters.AddWithValue("@o", orderId);
+            using var con = new SqlConnection(_cs);
 
-            using var iCmd = new NpgsqlCommand(
-                "SELECT * FROM invoice_items_fn(@u,@o)", con);
-            iCmd.Parameters.AddWithValue("@u", userId);
-            iCmd.Parameters.AddWithValue("@o", orderId);
+            // 🔹 Invoice Header Query
+            string headerQuery = @"
+                SELECT 
+                    o.id,
+                    o.order_no,
+                    o.order_total,
+                    o.order_status,
+                    o.placed_time,
+                    u.first_name,
+                    u.last_name,
+                    u.email
+                FROM cfg_set_order o
+                JOIN cfg_set_user u ON u.user_id = o.user_id
+                WHERE o.id = @orderId AND o.user_id = @userId";
+
+            // 🔹 Invoice Items Query
+            string itemsQuery = @"
+                SELECT 
+                    oi.id,
+                    oi.medicine_id,
+                    m.medicine_name,
+                    oi.unit_price,
+                    oi.discount,
+                    oi.qty,
+                    oi.total_price
+                FROM cfg_set_order_item oi
+                JOIN cfg_set_medicine m ON m.id = oi.medicine_id
+                WHERE oi.order_id = @orderId AND oi.user_id = @userId";
+
+            using var hCmd = new SqlCommand(headerQuery, con);
+            hCmd.Parameters.Add("@userId", SqlDbType.Int).Value = userId;
+            hCmd.Parameters.Add("@orderId", SqlDbType.Int).Value = orderId;
+
+            using var iCmd = new SqlCommand(itemsQuery, con);
+            iCmd.Parameters.Add("@userId", SqlDbType.Int).Value = userId;
+            iCmd.Parameters.Add("@orderId", SqlDbType.Int).Value = orderId;
 
             con.Open();
-            new NpgsqlDataAdapter(hCmd).Fill(ds, "InvoiceHeader");
-            new NpgsqlDataAdapter(iCmd).Fill(ds, "InvoiceItems");
+
+            using (var da = new SqlDataAdapter(hCmd))
+            {
+                da.Fill(ds, "InvoiceHeader");
+            }
+
+            using (var da = new SqlDataAdapter(iCmd))
+            {
+                da.Fill(ds, "InvoiceItems");
+            }
 
             return ds;
         }

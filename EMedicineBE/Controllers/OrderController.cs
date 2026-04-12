@@ -3,7 +3,7 @@ using EMedicineBE.Models;
 using EMedicineBE.Services.Interfaces;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Configuration;
-using Npgsql;
+using Microsoft.Data.SqlClient;
 
 namespace EMedicineBE.Controllers
 {
@@ -24,8 +24,8 @@ namespace EMedicineBE.Controllers
                  => Ok(await _service.PlaceOrder(dto));
 
         [HttpGet("userOrderList/{user_id}")]
-        public async Task<IActionResult> UserOrders(int userId)
-            => Ok(await _service.UserOrders(userId));
+        public async Task<IActionResult> UserOrders([FromRoute(Name = "user_id")] int userId)
+      => Ok(await _service.UserOrders(userId));
 
         [HttpGet("orderDetails/{userId}/{orderId}")]
         public async Task<IActionResult> Details(int userId, int orderId)

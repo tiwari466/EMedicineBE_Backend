@@ -2,7 +2,7 @@
 using EMedicineBE.Models;
 using EMedicineBE.Services.Interfaces;
 using Microsoft.AspNetCore.Mvc;
-using Npgsql;
+using Microsoft.Data.SqlClient;
 
 namespace EMedicineBE.Controllers
 {

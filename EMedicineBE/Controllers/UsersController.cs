@@ -5,7 +5,7 @@ using EMedicineBE.Models;
 using EMedicineBE.Services.Interfaces;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Configuration;
-using Npgsql;
+using Microsoft.Data.SqlClient;
 using System.IO;
 
 namespace EMedicineBE.Controllers

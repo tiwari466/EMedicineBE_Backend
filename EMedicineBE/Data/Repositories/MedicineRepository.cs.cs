@@ -1,5 +1,5 @@
 ﻿using EMedicineBE.Entities;
-using Npgsql;
+using Microsoft.Data.SqlClient;
 
 namespace EMedicineBE.Data.Repositories
 {
@@ -9,12 +9,12 @@ namespace EMedicineBE.Data.Repositories
 
         public MedicineRepository(IConfiguration config)
         {
-            _cs = config.GetConnectionString("PostgresCS");
+            _cs = config.GetConnectionString("SqlServerCS");
         }
 
         public async Task<bool> SaveAsync(Medicine m)
         {
-            using var con = new NpgsqlConnection(_cs);
+            using var con = new SqlConnection(_cs);
 
             string sql = m.id == 0
                 ? @"INSERT INTO cfg_set_medicine
@@ -26,22 +26,22 @@ namespace EMedicineBE.Data.Repositories
                    exp_date=@exp, image_url=@img, status=@st, type=@t
                    WHERE id=@id";
 
-            using var cmd = new NpgsqlCommand(sql, con);
+            using var cmd = new SqlCommand(sql, con);
 
             if (m.id > 0)
-                cmd.Parameters.AddWithValue("@id", m.id);
+                cmd.Parameters.Add("@id", System.Data.SqlDbType.Int).Value = m.id;
 
-            cmd.Parameters.AddWithValue("@n", m.medicine_name);
-            cmd.Parameters.AddWithValue("@man", m.manufacturer);
-            cmd.Parameters.AddWithValue("@up", m.unit_price);
-            cmd.Parameters.AddWithValue("@d", m.discount);
-            cmd.Parameters.AddWithValue("@q", m.qty);
-            cmd.Parameters.AddWithValue("@dis", (object?)m.disease ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@u", (object?)m.uses ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@exp", m.exp_date);
-            cmd.Parameters.AddWithValue("@img", (object?)m.image_url ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@st", m.status);
-            cmd.Parameters.AddWithValue("@t", m.type);
+            cmd.Parameters.Add("@n", System.Data.SqlDbType.NVarChar).Value = m.medicine_name ?? (object)DBNull.Value;
+            cmd.Parameters.Add("@man", System.Data.SqlDbType.NVarChar).Value = m.manufacturer ?? (object)DBNull.Value;
+            cmd.Parameters.Add("@up", System.Data.SqlDbType.Decimal).Value = m.unit_price;
+            cmd.Parameters.Add("@d", System.Data.SqlDbType.Decimal).Value = m.discount;
+            cmd.Parameters.Add("@q", System.Data.SqlDbType.Int).Value = m.qty;
+            cmd.Parameters.Add("@dis", System.Data.SqlDbType.NVarChar).Value = (object?)m.disease ?? DBNull.Value;
+            cmd.Parameters.Add("@u", System.Data.SqlDbType.NVarChar).Value = (object?)m.uses ?? DBNull.Value;
+            cmd.Parameters.Add("@exp", System.Data.SqlDbType.DateTime).Value = m.exp_date;
+            cmd.Parameters.Add("@img", System.Data.SqlDbType.NVarChar).Value = (object?)m.image_url ?? DBNull.Value;
+            cmd.Parameters.Add("@st", System.Data.SqlDbType.NVarChar).Value = (object?)m.status ?? DBNull.Value;
+            cmd.Parameters.Add("@t", System.Data.SqlDbType.NVarChar).Value = (object?)m.type ?? DBNull.Value;
 
             await con.OpenAsync();
             return await cmd.ExecuteNonQueryAsync() > 0;
@@ -50,12 +50,14 @@ namespace EMedicineBE.Data.Repositories
         public async Task<List<Medicine>> GetAllAsync()
         {
             var list = new List<Medicine>();
-            using var con = new NpgsqlConnection(_cs);
 
-            using var cmd = new NpgsqlCommand(
+            using var con = new SqlConnection(_cs);
+
+            using var cmd = new SqlCommand(
                 "SELECT * FROM cfg_set_medicine ORDER BY id DESC", con);
 
             await con.OpenAsync();
+
             using var r = await cmd.ExecuteReaderAsync();
 
             while (await r.ReadAsync())
@@ -72,7 +74,8 @@ namespace EMedicineBE.Data.Repositories
                     uses = r.IsDBNull(r.GetOrdinal("uses")) ? null : r.GetString(r.GetOrdinal("uses")),
                     exp_date = r.GetDateTime(r.GetOrdinal("exp_date")),
                     image_url = r.IsDBNull(r.GetOrdinal("image_url")) ? null : r.GetString(r.GetOrdinal("image_url")),
-                    status = r.IsDBNull(r.GetOrdinal("status")) ? null : r.GetString(r.GetOrdinal("status"))
+                    status = r.IsDBNull(r.GetOrdinal("status")) ? null : r.GetString(r.GetOrdinal("status")),
+                    type = r.IsDBNull(r.GetOrdinal("type")) ? null : r.GetString(r.GetOrdinal("type"))
                 });
             }
 

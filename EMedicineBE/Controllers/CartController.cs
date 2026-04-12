@@ -2,7 +2,7 @@
 using EMedicineBE.Entities;
 using EMedicineBE.Models;
 using Microsoft.AspNetCore.Mvc;
-using Npgsql;
+using Microsoft.Data.SqlClient;
 using static iText.StyledXmlParser.Jsoup.Select.Evaluator;
 
 namespace EMedicineBE.Controllers

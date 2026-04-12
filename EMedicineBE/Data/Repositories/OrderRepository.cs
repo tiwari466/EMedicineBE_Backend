@@ -1,6 +1,7 @@
 ﻿using EMedicineBE.Dto.Order;
 using EMedicineBE.Entities;
-using Npgsql;
+using Microsoft.Data.SqlClient;
+using System.Data;
 
 namespace EMedicineBE.Data.Repositories
 {
@@ -10,71 +11,78 @@ namespace EMedicineBE.Data.Repositories
 
         public OrderRepository(IConfiguration configuration)
         {
-            _cs = configuration.GetConnectionString("PostgresCS");
+            _cs = configuration.GetConnectionString("SqlServerCS");
         }
 
-        // 🔹 PLACE ORDER (transaction preserved)
+        // 🔹 PLACE ORDER
         public async Task<bool> PlaceOrderAsync(PlaceOrderDto dto)
         {
-            using var con = new NpgsqlConnection(_cs);
+            using var con = new SqlConnection(_cs);
             await con.OpenAsync();
-            using var tx = await con.BeginTransactionAsync();
+
+            using var tx = con.BeginTransaction();
 
             try
             {
                 // 1️⃣ Check cart
-                var checkCmd = new NpgsqlCommand(
+                var checkCmd = new SqlCommand(
                     "SELECT COUNT(*) FROM cfg_set_cart WHERE user_id=@uid",
                     con, tx);
-                checkCmd.Parameters.AddWithValue("@uid", dto.user_id);
+
+                checkCmd.Parameters.Add("@uid", SqlDbType.Int).Value = dto.user_id;
 
                 int cartCount = Convert.ToInt32(await checkCmd.ExecuteScalarAsync());
+
                 if (cartCount == 0)
                 {
-                    await tx.RollbackAsync();
+                    tx.Rollback();
                     return false;
                 }
 
                 // 2️⃣ Create order
-                var orderCmd = new NpgsqlCommand(@"
+                var orderCmd = new SqlCommand(@"
                     INSERT INTO cfg_set_order
                     (user_id, order_no, order_total, order_status, placed_time)
                     VALUES
                     (@uid, @ono,
                      (SELECT SUM(total_price) FROM cfg_set_cart WHERE user_id=@uid),
-                     'Pending', NOW())
-                    RETURNING id", con, tx);
+                     'Pending', GETDATE());
 
-                orderCmd.Parameters.AddWithValue("@uid", dto.user_id);
-                orderCmd.Parameters.AddWithValue("@ono", "ORD-" + Guid.NewGuid());
+                    SELECT SCOPE_IDENTITY();", con, tx);
+
+                orderCmd.Parameters.Add("@uid", SqlDbType.Int).Value = dto.user_id;
+                orderCmd.Parameters.Add("@ono", SqlDbType.NVarChar).Value = "ORD-" + Guid.NewGuid();
 
                 int orderId = Convert.ToInt32(await orderCmd.ExecuteScalarAsync());
 
                 // 3️⃣ Move cart → order items
-                var itemCmd = new NpgsqlCommand(@"
+                var itemCmd = new SqlCommand(@"
                     INSERT INTO cfg_set_order_item
                     (user_id, order_id, medicine_id, unit_price, discount, qty, total_price)
                     SELECT user_id, @oid, medicine_id, unit_price, discount, qty, total_price
                     FROM cfg_set_cart WHERE user_id=@uid",
                     con, tx);
 
-                itemCmd.Parameters.AddWithValue("@oid", orderId);
-                itemCmd.Parameters.AddWithValue("@uid", dto.user_id);
+                itemCmd.Parameters.Add("@oid", SqlDbType.Int).Value = orderId;
+                itemCmd.Parameters.Add("@uid", SqlDbType.Int).Value = dto.user_id;
+
                 await itemCmd.ExecuteNonQueryAsync();
 
                 // 4️⃣ Clear cart
-                var clearCmd = new NpgsqlCommand(
+                var clearCmd = new SqlCommand(
                     "DELETE FROM cfg_set_cart WHERE user_id=@uid",
                     con, tx);
-                clearCmd.Parameters.AddWithValue("@uid", dto.user_id);
+
+                clearCmd.Parameters.Add("@uid", SqlDbType.Int).Value = dto.user_id;
+
                 await clearCmd.ExecuteNonQueryAsync();
 
-                await tx.CommitAsync();
+                tx.Commit();
                 return true;
             }
             catch
             {
-                await tx.RollbackAsync();
+                tx.Rollback();
                 throw;
             }
         }
@@ -84,23 +92,17 @@ namespace EMedicineBE.Data.Repositories
         {
             var orders = new List<Order>();
 
-            using var con = new NpgsqlConnection(_cs);
+            using var con = new SqlConnection(_cs);
             await con.OpenAsync();
 
+            // 1️⃣ Get Orders
+            var orderCmd = new SqlCommand(@"
+                SELECT id AS order_id, order_no, order_total, order_status
+                FROM cfg_set_order
+                WHERE user_id = @uid
+                ORDER BY id DESC", con);
 
-            // =======================
-            // 1️⃣ Get Orders (Use order_id)
-            // =======================
-
-            var orderCmd = new NpgsqlCommand(@"
-        SELECT id AS order_id , order_no, order_total, order_status
-        FROM cfg_set_order
-        WHERE user_id = @uid
-        ORDER BY order_id DESC
-    ", con);
-
-            orderCmd.Parameters.AddWithValue("@uid", userId);
-
+            orderCmd.Parameters.Add("@uid", SqlDbType.Int).Value = userId;
 
             using var orderReader = await orderCmd.ExecuteReaderAsync();
 
@@ -108,53 +110,32 @@ namespace EMedicineBE.Data.Repositories
             {
                 orders.Add(new Order
                 {
-                    order_id = orderReader.GetInt32(
-                        orderReader.GetOrdinal("order_id")
-                    ),
-
-                    order_no = orderReader.GetString(
-                        orderReader.GetOrdinal("order_no")
-                    ),
-
-                    order_total = orderReader.GetDecimal(
-                        orderReader.GetOrdinal("order_total")
-                    ),
-
-                    order_status = orderReader.GetString(
-                        orderReader.GetOrdinal("order_status")
-                    ),
-
+                    order_id = orderReader.GetInt32(orderReader.GetOrdinal("order_id")),
+                    order_no = orderReader.GetString(orderReader.GetOrdinal("order_no")),
+                    order_total = orderReader.GetDecimal(orderReader.GetOrdinal("order_total")),
+                    order_status = orderReader.GetString(orderReader.GetOrdinal("order_status")),
                     items = new List<OrderItem>()
                 });
             }
 
             await orderReader.CloseAsync();
 
+            // 2️⃣ Get Items
+            var itemCmd = new SqlCommand(@"
+                SELECT 
+                    oi.order_id,
+                    oi.qty,
+                    oi.unit_price,
+                    oi.total_price,
+                    m.medicine_name,
+                    m.image_url
+                FROM cfg_set_order_item oi
+                JOIN cfg_set_medicine m ON m.id = oi.medicine_id
+                WHERE oi.order_id IN (
+                    SELECT id FROM cfg_set_order WHERE user_id = @uid
+                )", con);
 
-            // =======================
-            // 2️⃣ Get Items (Join by order_id)
-            // =======================
-
-            var itemCmd = new NpgsqlCommand(@"
-        SELECT 
-            oi.order_id,
-            oi.qty,
-            oi.unit_price,
-            oi.total_price,
-            m.medicine_name,
-            m.image_url
-        FROM cfg_set_order_item oi
-        JOIN cfg_set_medicine m 
-            ON m.id = oi.medicine_id
-        WHERE oi.order_id IN (
-            SELECT id AS order_id 
-            FROM cfg_set_order 
-            WHERE user_id = @uid
-        )
-    ", con);
-
-            itemCmd.Parameters.AddWithValue("@uid", userId);
-
+            itemCmd.Parameters.Add("@uid", SqlDbType.Int).Value = userId;
 
             using var itemReader = await itemCmd.ExecuteReaderAsync();
 
@@ -162,59 +143,36 @@ namespace EMedicineBE.Data.Repositories
             {
                 var item = new OrderItem
                 {
-                    order_id = itemReader.GetInt32(
-                        itemReader.GetOrdinal("order_id")
-                    ),
-
-                    medicine_name = itemReader.GetString(
-                        itemReader.GetOrdinal("medicine_name")
-                    ),
-
-                    image_url = itemReader.GetString(
-                        itemReader.GetOrdinal("image_url")
-                    ),
-
-                    qty = itemReader.GetInt32(
-                        itemReader.GetOrdinal("qty")
-                    ),
-
-                    unit_price = itemReader.GetDecimal(
-                        itemReader.GetOrdinal("unit_price")
-                    ),
-
-                    total_price = itemReader.GetDecimal(
-                        itemReader.GetOrdinal("total_price")
-                    )
+                    order_id = itemReader.GetInt32(itemReader.GetOrdinal("order_id")),
+                    medicine_name = itemReader.GetString(itemReader.GetOrdinal("medicine_name")),
+                    image_url = itemReader.GetString(itemReader.GetOrdinal("image_url")),
+                    qty = itemReader.GetInt32(itemReader.GetOrdinal("qty")),
+                    unit_price = itemReader.GetDecimal(itemReader.GetOrdinal("unit_price")),
+                    total_price = itemReader.GetDecimal(itemReader.GetOrdinal("total_price"))
                 };
 
-
-                // Attach to correct order
-                var order = orders.FirstOrDefault(
-                    o => o.order_id == item.order_id
-                );
-
+                var order = orders.FirstOrDefault(o => o.order_id == item.order_id);
                 if (order != null)
-                {
                     order.items.Add(item);
-                }
             }
 
             return orders;
         }
 
-
         // 🔹 ORDER DETAILS
         public async Task<Order?> GetOrderDetailsAsync(int userId, int orderId)
         {
-            using var con = new NpgsqlConnection(_cs);
+            using var con = new SqlConnection(_cs);
             await con.OpenAsync();
 
-            var cmd = new NpgsqlCommand(
+            var cmd = new SqlCommand(
                 "SELECT * FROM cfg_set_order WHERE id=@oid AND user_id=@uid", con);
-            cmd.Parameters.AddWithValue("@oid", orderId);
-            cmd.Parameters.AddWithValue("@uid", userId);
+
+            cmd.Parameters.Add("@oid", SqlDbType.Int).Value = orderId;
+            cmd.Parameters.Add("@uid", SqlDbType.Int).Value = userId;
 
             using var r = await cmd.ExecuteReaderAsync();
+
             if (!await r.ReadAsync()) return null;
 
             var order = new Order
@@ -225,16 +183,19 @@ namespace EMedicineBE.Data.Repositories
                 order_status = r.GetString(r.GetOrdinal("order_status")),
                 items = new List<OrderItem>()
             };
+
             await r.CloseAsync();
 
-            var itemCmd = new NpgsqlCommand(@"
+            var itemCmd = new SqlCommand(@"
                 SELECT oi.*, m.medicine_name, m.image_url
                 FROM cfg_set_order_item oi
                 JOIN cfg_set_medicine m ON m.id = oi.medicine_id
                 WHERE oi.order_id=@oid", con);
-            itemCmd.Parameters.AddWithValue("@oid", orderId);
+
+            itemCmd.Parameters.Add("@oid", SqlDbType.Int).Value = orderId;
 
             using var ir = await itemCmd.ExecuteReaderAsync();
+
             while (await ir.ReadAsync())
             {
                 order.items.Add(new OrderItem
@@ -250,17 +211,23 @@ namespace EMedicineBE.Data.Repositories
             return order;
         }
 
-        // 🔹 CANCEL ORDER
+        // 🔹 CANCEL ORDER (No function → direct update)
         public async Task<int> CancelOrderAsync(CancelOrderDto dto)
         {
-            using var con = new NpgsqlConnection(_cs);
-            var cmd = new NpgsqlCommand(
-                "SELECT cancel_order_fn(@uid,@oid)", con);
-            cmd.Parameters.AddWithValue("@uid", dto.user_id);
-            cmd.Parameters.AddWithValue("@oid", dto.order_id);
+            using var con = new SqlConnection(_cs);
+
+            var cmd = new SqlCommand(@"
+                UPDATE cfg_set_order
+                SET order_status = 'Cancelled',
+                    cancel_reason = 'User Cancelled'
+                WHERE id = @oid AND user_id = @uid", con);
+
+            cmd.Parameters.Add("@oid", SqlDbType.Int).Value = dto.order_id;
+            cmd.Parameters.Add("@uid", SqlDbType.Int).Value = dto.user_id;
 
             await con.OpenAsync();
-            return Convert.ToInt32(await cmd.ExecuteScalarAsync());
+
+            return await cmd.ExecuteNonQueryAsync();
         }
     }
 }
