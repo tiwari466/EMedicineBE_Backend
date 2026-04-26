@@ -106,7 +106,8 @@ namespace EMedicineBE.Services.Implementations
                 // Save In Database
                 // -----------------------------
 
-                bool saved = await _repo.UpdateProfilePicture(userId, fileName);
+                var imagePath = $"/profilepics/{fileName}";
+                bool saved = await _repo.UpdateProfilePicture(userId, imagePath);
 
                 if (!saved)
                     return ApiResponse<string>.Fail("Database update failed");

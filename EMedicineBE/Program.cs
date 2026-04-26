@@ -6,6 +6,10 @@ using QuestPDF.Infrastructure;
 QuestPDF.Settings.License = LicenseType.Community;
 
 var builder = WebApplication.CreateBuilder(args);
+
+// =======================
+// DI Services
+// =======================
 builder.Services.AddScoped<IUserRepository, UserRepository>();
 builder.Services.AddScoped<IUserService, UserService>();
 builder.Services.AddScoped<IMedicineRepository, MedicineRepository>();
@@ -18,39 +22,44 @@ builder.Services.AddScoped<ICartRepository, CartRepository>();
 builder.Services.AddScoped<ICartService, CartService>();
 
 // =======================
-// Services
+// Controllers + Swagger
 // =======================
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
 // =======================
-// CORS (local React / Postman)
+// ✅ CORS (React Frontend)
 // =======================
 builder.Services.AddCors(options =>
 {
-    options.AddPolicy("AllowLocal", policy =>
+    options.AddPolicy("AllowFrontend", policy =>
+    {
         policy
-            .AllowAnyOrigin()
+            .WithOrigins("http://localhost:3000") // React app
             .AllowAnyHeader()
-            .AllowAnyMethod());
+            .AllowAnyMethod();
+    });
 });
 
 var app = builder.Build();
-app.UseStaticFiles();
+
 // =======================
 // Middleware
 // =======================
+app.UseStaticFiles();
+
 if (app.Environment.IsDevelopment())
 {
     app.UseSwagger();
     app.UseSwaggerUI();
 }
 
-// ✅ Enable HTTPS locally
-//app.UseHttpsRedirection();
+// ❌ Keep disabled if causing issues locally
+// app.UseHttpsRedirection();
 
-app.UseCors("AllowLocal");
+// ✅ Apply CORS BEFORE Authorization
+app.UseCors("AllowFrontend");
 
 app.UseAuthorization();
 
