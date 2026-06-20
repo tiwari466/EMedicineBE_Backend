@@ -30,7 +30,15 @@ namespace EMedicineBE.Controllers
             => Ok(await _service.Remove(cartId));
 
         [HttpPut("updateCartQty")]
-        public async Task<IActionResult> UpdateCartQty(int id, int qty)
-        => Ok(await _service.UpdateQty(id, qty));
+        public async Task<IActionResult> UpdateCartQty(
+    [FromBody] UpdateCartQtyRequestDto dto)
+        {
+            return Ok(
+                await _service.UpdateQty(
+                    dto.id,
+                    dto.qty
+                )
+            );
+        }
     }
 }

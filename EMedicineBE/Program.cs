@@ -124,19 +124,18 @@ builder.Services.AddSwaggerGen(c =>
 // ==========================================
 // CORS
 // ==========================================
+
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("AllowFrontend", policy =>
     {
         policy
             .WithOrigins(
-                "http://localhost:3000",
-                "http://localhost:5173")
+                "https://e-medicine-frontend.vercel.app")
             .AllowAnyHeader()
             .AllowAnyMethod();
     });
 });
-
 var app = builder.Build();
 
 // ==========================================
@@ -144,11 +143,8 @@ var app = builder.Build();
 // ==========================================
 app.UseStaticFiles();
 
-if (app.Environment.IsDevelopment())
-{
-    app.UseSwagger();
-    app.UseSwaggerUI();
-}
+app.UseSwagger();
+app.UseSwaggerUI();
 
 // app.UseHttpsRedirection();
 
@@ -160,5 +156,12 @@ app.UseAuthentication();
 app.UseAuthorization();
 
 app.MapControllers();
+app.UseAuthorization();
+
+app.MapControllers();
+
+app.MapGet("/", () => "E-Medicine API Running Successfully");
+
+app.Run();
 
 app.Run();

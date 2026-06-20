@@ -50,6 +50,10 @@ public class CartRepository : ICartRepository
             list.Add(new Cart
             {
                 id = r.GetInt32(r.GetOrdinal("id")),
+                user_id = r.GetInt32(r.GetOrdinal("user_id")),
+                medicine_id = r.GetInt32(r.GetOrdinal("medicine_id")),
+                unit_price = r.GetDecimal(r.GetOrdinal("unit_price")),
+                discount = r.GetDecimal(r.GetOrdinal("discount")),
                 qty = r.GetInt32(r.GetOrdinal("qty")),
                 total_price = r.GetDecimal(r.GetOrdinal("total_price")),
                 medicine_name = r.GetString(r.GetOrdinal("medicine_name")),
@@ -64,11 +68,48 @@ public class CartRepository : ICartRepository
     {
         using var con = new SqlConnection(_cs);
 
-        string sql = @"UPDATE cfg_set_cart
-                       SET qty = @q,
-                           total_price = (unit_price * @q) - discount
-                       WHERE id = @id";
+        string sql = @"
+IF EXISTS
+(
+ SELECT 1
+ FROM cfg_set_cart
+ WHERE user_id=@u
+ AND medicine_id=@m
+)
+BEGIN
 
+ UPDATE cfg_set_cart
+ SET qty = qty + @q,
+     total_price = total_price + @t
+
+ WHERE user_id=@u
+ AND medicine_id=@m
+
+END
+ELSE
+BEGIN
+
+ INSERT INTO cfg_set_cart
+ (
+   user_id,
+   medicine_id,
+   unit_price,
+   discount,
+   qty,
+   total_price
+ )
+ VALUES
+ (
+   @u,
+   @m,
+   @up,
+   @d,
+   @q,
+   @t
+ )
+
+END
+";
         using var cmd = new SqlCommand(sql, con);
         cmd.Parameters.AddWithValue("@id", cartId);
         cmd.Parameters.AddWithValue("@q", qty);
