@@ -7,7 +7,7 @@ namespace EMedicineBE.Data.Repositories
     public interface IUserRepository
     {
         Task<int> Register(RegisterRequestDto dto);
-        Task<User?> Login(string email, string password);
+        Task<User?> Login(string email);
         Task<User?> GetUser(int userId);
         Task<bool> UpdateProfile(UpdateProfileRequestDto dto);
         Task<bool> UpdateProfilePicture(int userId, string pictureUrl);

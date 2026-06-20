@@ -20,53 +20,113 @@ namespace EMedicineBE.Data.Repositories
         {
             using var con = new SqlConnection(_cs);
 
-            string sql = @"INSERT INTO cfg_set_user
-                (first_name,last_name,password,email,fund,type,status,picture)
-                VALUES (@fn,@ln,@pw,@em,0,'Users','Pending',@pic)";
+            // Check if email exists
+            string checkSql = "SELECT COUNT(1) FROM cfg_set_user WHERE email = @em";
+
+            using (var checkCmd = new SqlCommand(checkSql, con))
+            {
+                checkCmd.Parameters.Add("@em", SqlDbType.NVarChar).Value = dto.email;
+
+                await con.OpenAsync();
+
+                int exists = Convert.ToInt32(await checkCmd.ExecuteScalarAsync());
+
+                if (exists > 0)
+                    throw new Exception("Email already registered");
+
+                await con.CloseAsync();
+            }
+
+            string passwordHash = BCrypt.Net.BCrypt.HashPassword(dto.password);
+
+            string sql = @"
+    INSERT INTO cfg_set_user
+    (
+        first_name,
+        last_name,
+        email,
+        password_hash,
+        role,
+        fund,
+        type,
+        status,
+        picture,
+        email_verified,
+        is_active,
+        created_at
+    )
+    VALUES
+    (
+        @fn,
+        @ln,
+        @em,
+        @ph,
+        'User',
+        0,
+        'Users',
+        'Pending',
+        @pic,
+        0,
+        1,
+        GETDATE()
+    )";
 
             using var cmd = new SqlCommand(sql, con);
 
             cmd.Parameters.Add("@fn", SqlDbType.NVarChar).Value = dto.first_name ?? "";
             cmd.Parameters.Add("@ln", SqlDbType.NVarChar).Value = dto.last_name ?? "";
-            cmd.Parameters.Add("@pw", SqlDbType.NVarChar).Value = dto.password ?? "";
             cmd.Parameters.Add("@em", SqlDbType.NVarChar).Value = dto.email ?? "";
-            cmd.Parameters.Add("@pic", SqlDbType.NVarChar).Value = (object?)dto.picture ?? DBNull.Value;
+            cmd.Parameters.Add("@ph", SqlDbType.NVarChar).Value = passwordHash;
+            cmd.Parameters.Add("@pic", SqlDbType.NVarChar).Value =
+                (object?)dto.picture ?? DBNull.Value;
 
             await con.OpenAsync();
+
             return await cmd.ExecuteNonQueryAsync();
         }
-
         // 🔹 LOGIN
-        public async Task<User?> Login(string email, string password)
+        public async Task<User?> Login(string email)
         {
             using var con = new SqlConnection(_cs);
 
-            string sql = @"SELECT user_id,first_name,last_name,email,type,picture
-                           FROM cfg_set_user
-                           WHERE email=@em AND password=@pw";
+            string sql = @"
+    SELECT
+        user_id,
+        first_name,
+        last_name,
+        email,
+        type,
+        picture,
+        password_hash,
+        role,
+        is_active
+    FROM cfg_set_user
+    WHERE email = @em";
 
             using var cmd = new SqlCommand(sql, con);
 
             cmd.Parameters.Add("@em", SqlDbType.NVarChar).Value = email;
-            cmd.Parameters.Add("@pw", SqlDbType.NVarChar).Value = password;
 
             await con.OpenAsync();
 
             using var r = await cmd.ExecuteReaderAsync();
 
-            if (!r.Read()) return null;
+            if (!r.Read())
+                return null;
 
             return new User
             {
-                user_id = r.GetInt32(0),
-                first_name = r.GetString(1),
-                last_name = r.GetString(2),
-                email = r.GetString(3),
-                type = r.GetString(4),
-                picture = r.IsDBNull(5) ? null : r.GetString(5)
+                user_id = Convert.ToInt32(r["user_id"]),
+                first_name = r["first_name"]?.ToString() ?? "",
+                last_name = r["last_name"]?.ToString() ?? "",
+                email = r["email"]?.ToString() ?? "",
+                type = r["type"]?.ToString(),
+                picture = r["picture"]?.ToString(),
+                password_hash = r["password_hash"]?.ToString(),
+                role = r["role"]?.ToString() ?? "User",
+                is_active = Convert.ToBoolean(r["is_active"])
             };
         }
-
         // 🔹 GET USER
         public async Task<User?> GetUser(int userId)
         {
@@ -101,42 +161,48 @@ namespace EMedicineBE.Data.Repositories
 
             string sql;
 
-            if (string.IsNullOrWhiteSpace(dto.password))
-            {
-                sql = @"
-                    UPDATE cfg_set_user 
-                    SET first_name = @fn,
-                        last_name  = @ln,
-                        email      = @em
-                    WHERE user_id = @id";
-            }
-            else
-            {
-                sql = @"
-                    UPDATE cfg_set_user 
-                    SET first_name = @fn,
-                        last_name  = @ln,
-                        email      = @em,
-                        password   = @pw
-                    WHERE user_id = @id";
-            }
-
-            using var cmd = new SqlCommand(sql, con);
+            using var cmd = new SqlCommand();
+            cmd.Connection = con;
 
             cmd.Parameters.Add("@id", SqlDbType.Int).Value = dto.user_id;
             cmd.Parameters.Add("@fn", SqlDbType.NVarChar).Value = dto.first_name ?? "";
             cmd.Parameters.Add("@ln", SqlDbType.NVarChar).Value = dto.last_name ?? "";
             cmd.Parameters.Add("@em", SqlDbType.NVarChar).Value = dto.email ?? "";
 
-            if (!string.IsNullOrWhiteSpace(dto.password))
+            if (string.IsNullOrWhiteSpace(dto.password))
             {
-                cmd.Parameters.Add("@pw", SqlDbType.NVarChar).Value = dto.password;
+                sql = @"
+        UPDATE cfg_set_user
+        SET first_name = @fn,
+            last_name = @ln,
+            email = @em,
+            updated_at = GETDATE()
+        WHERE user_id = @id";
+            }
+            else
+            {
+                string passwordHash =
+                    BCrypt.Net.BCrypt.HashPassword(dto.password);
+
+                sql = @"
+        UPDATE cfg_set_user
+        SET first_name = @fn,
+            last_name = @ln,
+            email = @em,
+            password_hash = @pw,
+            updated_at = GETDATE()
+        WHERE user_id = @id";
+
+                cmd.Parameters.Add("@pw", SqlDbType.NVarChar)
+                              .Value = passwordHash;
             }
 
+            cmd.CommandText = sql;
+
             await con.OpenAsync();
+
             return await cmd.ExecuteNonQueryAsync() > 0;
         }
-
         // 🔹 UPDATE PROFILE PICTURE
         public async Task<bool> UpdateProfilePicture(int userId, string pictureUrl)
         {
